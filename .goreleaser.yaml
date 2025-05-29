@@ -6,7 +6,7 @@ before:
     - go generate ./...
 
 snapshot:
-  name_template: "{{ .Tag }}-next"
+  version_template: "{{ .Tag }}-next"
 
 signs:
   - artifacts: checksum
@@ -35,7 +35,7 @@ archives:
   - name_template: '{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}'
     format_overrides:
     - goos: windows
-      format: zip
+      formats: [zip]
     wrap_in_directory: true
 
 checksum:
@@ -54,7 +54,7 @@ brews:
   - name: trazr-gen
     repository:
       owner: 'medxops'
-      name: 'homebrew-tap'
+      name: 'toolkit'
     homepage: https://github.com/medxops/trazr-gen
     description: "A tool to generate synthetic OpenTelemetry logs, metrics and traces telemetry data."
     install: |

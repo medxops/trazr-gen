@@ -2,7 +2,8 @@
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 [![Go Reference](https://pkg.go.dev/badge/github.com/medxops/trazr-gen.svg)](https://pkg.go.dev/github.com/medxops/trazr-gen)
-[![codecov](https://codecov.io/gh/<your-org>/<your-repo>/branch/main/graph/badge.svg)](https://codecov.io/gh/<your-org>/<your-repo>)
+package metrics
+[![codecov](https://codecov.io/gh/medxops/trazr-gen/branch/main/graph/badge.svg)](https://codecov.io/gh/medxops/trazr-gen>)
 
 ---
 
@@ -23,19 +24,15 @@ trazr-gen is safe for use in any environment: **all sensitive data is fake/test 
 ## Table of Contents
 - [Security Note](#security-note)
 - [Quick Start](#quick-start)
-- [Supported Signals](#supported-signals)
-- [Attribute-driven Data Injection](#attribute-driven-data-injection)
-- [Trace Scenarios](#trace-scenarios)
-- [Sensitive Attribute Keys](#sensitive-attribute-keys)
+- [Installation](#installation)
+  - [Homebrew (macOS/Linux)](#homebrew-macoslinux)
+  - [Docker](#docker)
+  - [Windows](#windows)
+- [Configuration](#configuration)
 - [Loading Sensitive Data from a Config File](#loading-sensitive-data-from-a-config-file)
-- [Observability & Security Best Practices](#observability--security-best-practices)
-- [Getting Started](#getting-started)
-- [Run](#run)
-- [CLI Usage: Global vs. Subcommand Flags](#cli-usage-global-vs-subcommand-flags)
-- [Configuration Parameters](#configuration-parameters)
-- [Metrics-Specific Parameters](#metrics-specific-parameters)
-- [Metrics Subcommands](#metrics-subcommands)
-- [Getting Help](#getting-help)
+- [Features](#features)
+- [Contributing](#contributing)
+- [License](#license)
 
 ---
 
@@ -67,13 +64,62 @@ trazr-gen traces single --output localhost:4317 --attributes sensitive --config 
 
 ---
 
-## Supported Signals
+## Installation
 
-- **Traces:** Simulate different trace patterns, span events, and links.
-- **Metrics:** Exponential histogram, gauge, histogram, sum, exemplars.
-- **Logs:** Log levels, log attributes, trace context correlation.
+### Homebrew (macOS/Linux)
 
-## Configuration Parameters
+You can install `trazr-gen` using Homebrew:
+
+```sh
+brew tap medxops/toolkit
+brew install trazr-gen
+```
+
+After installation, run:
+
+```sh
+trazr-gen --help
+```
+
+### Docker
+
+You can run `trazr-gen` as a container from [GitHub Packages](https://github.com/medxops/trazr-gen/pkgs/container/trazr-gen).
+
+**Example (output to terminal):**
+```sh
+docker run --rm ghcr.io/medxops/trazr-gen:latest traces single --output terminal --attributes sensitive
+```
+
+**Example (send to local OTLP endpoint):**
+```sh
+docker run --rm ghcr.io/medxops/trazr-gen:latest traces single --output host.docker.internal:4317 --attributes sensitive
+```
+
+> Replace `<your-output>` with your OTLP endpoint or use `terminal` for local output.
+
+**See all available tags:**  
+[GitHub Packages trazr-gen](https://github.com/medxops/trazr-gen/pkgs/container/trazr-gen)
+
+**Tip:**  
+If you need to mount a config file or output directory, use `-v $(pwd):/data` and reference `/data/yourfile` in your command.
+
+Example with mounted config:
+```sh
+docker run --rm -v $(pwd):/data ghcr.io/medxops/trazr-gen:latest traces single --output terminal --attributes sensitive --config /data/trazrgen.yaml
+```
+
+### Windows
+
+Download the latest release from [GitHub Releases](https://github.com/medxops/trazr-gen/releases):
+
+1. Download `trazr-gen_VERSION_windows_amd64.zip`
+2. Unzip and move `trazr-gen.exe` to a directory in your `PATH`
+3. Run in Command Prompt or PowerShell:
+   ```sh
+   trazr-gen.exe --help
+   ```
+
+## Configuration
 
 All parameters can be set via CLI flags, config file, or environment variables.
 
@@ -327,61 +373,6 @@ trazr-gen logs multi --attributes sensitive --config path/to/trazrgen.yaml
   - Test data loss prevention (DLP), SIEM, or compliance tooling.
 - Always keep the Security Note in mind: **never use real PII/PHI/secrets in test or synthetic data.**
 - Document and review all custom sensitive data loaded via config files.
-
----
-
-## Getting Started
-
-Installing `trazr-gen` is possible via several methods. It can be installed via `brew`, a binary downloaded from GitHub [Releases](https://github.com/medxops/trazr-gen/releases), or running it as a distroless multi-arch docker image.
-
-### brew
-
-Install [brew](https://brew.sh/) and then run:
-
-```sh
-brew install medxops/tap/trazr-gen
-```
-
-### Download Binary
-
-Download the latest version from the [Releases](https://github.com/medxops/trazr-gen/releases) page.
-
-### Docker
-
-To see all the tags view the [Packages](https://github.com/medxops/trazr-gen/pkgs/container/trazr-gen) page.
-
-Run the container via the following command (remember to set --output):
-
-```sh
-docker run --rm ghcr.io/medxops/trazr-gen:latest traces single --output <your-output> vbutes sensitive
-```
-
----
-
-## Run
-
-Running `trazr-gen` will generate this help:
-
-```sh
-NAME:
-   trazr-gen - A tool to generate synthetic OpenTelemetry logs, metrics and traces
-
-USAGE:
-   trazr-gen command [command options] [arguments...]
-
-VERSION:
-   develop
-
-COMMANDS:
-   logs, l     Generate logs
-   metrics, m  Generate metrics
-   traces, t   Generate traces
-   help, h     Shows a list of commands or help for one command
-
-GLOBAL OPTIONS:
-   --help, -h     show help
-   --version, -v  print the version
-
 
 ## Attribution
 
