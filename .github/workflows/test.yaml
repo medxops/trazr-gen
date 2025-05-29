@@ -34,7 +34,7 @@ jobs:
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4
         with:
-          name: coverage
+          name: coverage-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: coverage.out
       # - name: Upload coverage to Codecov
       #   uses: codecov/codecov-action@v4
