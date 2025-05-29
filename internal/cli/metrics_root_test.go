@@ -5,16 +5,14 @@ package cli
 
 import (
 	"context"
+	"flag"
 	"testing"
 
-	"flag"
-
 	"github.com/medxops/trazr-gen/internal/metrics"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/urfave/cli/v2"
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
-	"go.uber.org/zap"
 )
 
 func TestNewMetricExporter_UnsupportedProtocol(t *testing.T) {
@@ -110,12 +108,6 @@ func TestParseAttributes(t *testing.T) {
 
 // Mock cli.Context with StringSlice method
 
-type fakeContext struct {
-	headers []string
-}
-
-func (f *fakeContext) StringSlice(_ string) []string { return f.headers }
-
 func TestParseHeaders(t *testing.T) {
 	app := &cli.App{
 		Flags: []cli.Flag{
@@ -143,14 +135,7 @@ func TestParseHeaders(t *testing.T) {
 	}
 }
 
-func flagSetWithHeaders(headers []string) *flag.FlagSet {
-	set := flag.NewFlagSet("test", 0)
-	_ = set.Set("header", cli.NewStringSlice(headers...).String())
-	return set
-}
-
-func TestConfigureLogging(t *testing.T) {
-	// This test just ensures no panic and covers both branches
+func TestConfigureLogging(_ *testing.T) {
 	app := &cli.App{Flags: []cli.Flag{&cli.StringFlag{Name: "log-level"}}}
 	set := flag.NewFlagSet("test", 0)
 	_ = set.Set("log-level", "debug")
@@ -196,8 +181,8 @@ func TestGetExporterOptions(t *testing.T) {
 			ctx := cli.NewContext(app, set, nil)
 			mc := &metrics.Config{Output: tc.output}
 			grpcOpts, httpOpts := getExporterOptions(ctx, mc)
-			assert.NotNil(t, grpcOpts)
-			assert.NotNil(t, httpOpts)
+			require.NotNil(t, grpcOpts)
+			require.NotNil(t, httpOpts)
 		})
 	}
 }
@@ -211,10 +196,6 @@ func boolToString(b bool) string {
 
 // Mocks for MetricExporter and zap.Logger for createExporter
 
-type mockExporter struct{ metric.Exporter }
-
-type mockLogger struct{ *zap.Logger }
-
 func TestCreateExporter_TerminalAndStdout(t *testing.T) {
 	app := &cli.App{Flags: []cli.Flag{
 		&cli.StringFlag{Name: "output"},
@@ -225,8 +206,8 @@ func TestCreateExporter_TerminalAndStdout(t *testing.T) {
 		_ = set.Set("output", output)
 		ctx := cli.NewContext(app, set, nil)
 		exp, err := createExporter(context.Background(), ctx, nil, nil)
-		assert.NoError(t, err)
-		assert.NotNil(t, exp)
+		require.NoError(t, err)
+		require.NotNil(t, exp)
 	}
 }
 
@@ -241,6 +222,6 @@ func TestCreateExporter_UnsupportedProtocol(t *testing.T) {
 	ctx := cli.NewContext(app, set, nil)
 	// Should fallback to grpc, not error
 	exp, err := createExporter(context.Background(), ctx, nil, nil)
-	assert.NoError(t, err)
-	assert.NotNil(t, exp)
+	require.NoError(t, err)
+	require.NotNil(t, exp)
 }
