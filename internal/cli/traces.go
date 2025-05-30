@@ -173,7 +173,7 @@ func generateTraces(c *cli.Context, isSingle bool) error {
 
 	var spanExporter sdktrace.SpanExporter
 	var err error
-	if tracesCfg.Output == "stdout" || tracesCfg.Output == "terminal" {
+	if tracesCfg.Output == "terminal" || tracesCfg.Output == "" {
 		spanExporter = &traces.StdoutSpanExporter{}
 	} else {
 		grpcExpOpt := []otlptracegrpc.Option{

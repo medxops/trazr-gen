@@ -66,9 +66,6 @@ func (c *Config) Validate() error {
 	if c.ServiceName == "" {
 		return errors.New("service name must not be empty")
 	}
-	if c.Output == "" {
-		return errors.New("output must not be empty")
-	}
 	if c.Rate < 0 {
 		return errors.New("rate must be non-negative (0 means unthrottled)")
 	}

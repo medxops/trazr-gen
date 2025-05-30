@@ -61,7 +61,7 @@ func generateMetricsExponentialHistogramAction(c *cli.Context) error {
 
 	metricsCfg := BuildMetricsConfig(c)
 
-	if metricsCfg.Output == "terminal" || metricsCfg.Output == "stdout" {
+	if metricsCfg.Output == "terminal" {
 		return metrics.SimulateExponentialHistogram(noop.NewMeterProvider(), metrics.ExponentialHistogramConfig{}, metricsCfg, logger)
 	}
 

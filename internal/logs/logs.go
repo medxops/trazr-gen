@@ -185,7 +185,7 @@ func createExporter(c *Config) (sdklog.Exporter, error) {
 	var exp sdklog.Exporter
 	var err error
 
-	if c.Output == "stdout" || c.Output == "terminal" {
+	if c.Output == "terminal" || c.Output == "" {
 		return &StdoutLogExporter{}, nil
 	}
 

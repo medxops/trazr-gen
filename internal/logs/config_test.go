@@ -42,7 +42,6 @@ func TestConfig_Validate(t *testing.T) {
 		{"negative duration", &Config{Rate: 1, TotalDuration: -1, NumLogs: 1, ServiceName: "svc", Output: "out"}, true},
 		{"negative num logs", &Config{Rate: 1, TotalDuration: 1, NumLogs: -1, ServiceName: "svc", Output: "out"}, true},
 		{"empty service name", &Config{Rate: 1, TotalDuration: 1, NumLogs: 1, ServiceName: "", Output: "out"}, true},
-		{"empty output", &Config{Rate: 1, TotalDuration: 1, NumLogs: 1, ServiceName: "svc", Output: ""}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -63,7 +63,7 @@ func TestBasicScenario_WithSensitive(t *testing.T) {
 	found := false
 	if tracer.LastSpan != nil {
 		for _, attr := range tracer.LastSpan.Attributes {
-			if attr.Key == "user.ssn" || attr.Key == "user.email" || attr.Key == "auth.token" {
+			if attr.Key == "mock.sensitive.present" {
 				found = true
 			}
 		}

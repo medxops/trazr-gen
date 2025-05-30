@@ -51,7 +51,7 @@ func generateMetricsGaugeAction(c *cli.Context) error {
 
 	metricsCfg := BuildMetricsConfig(c)
 
-	if metricsCfg.Output == "terminal" || metricsCfg.Output == "stdout" {
+	if metricsCfg.Output == "terminal" {
 		return metrics.SimulateGauge(noop.NewMeterProvider(), metrics.GaugeConfig{}, metricsCfg, logger)
 	}
 

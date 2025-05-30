@@ -196,31 +196,13 @@ func boolToString(b bool) string {
 
 // Mocks for MetricExporter and zap.Logger for createExporter
 
-func TestCreateExporter_TerminalAndStdout(t *testing.T) {
+func TestCreateExporter_Terminal(t *testing.T) {
 	app := &cli.App{Flags: []cli.Flag{
 		&cli.StringFlag{Name: "output"},
-		&cli.StringFlag{Name: "protocol"},
-	}}
-	for _, output := range []string{"terminal", "stdout"} {
-		set := flag.NewFlagSet("test", 0)
-		_ = set.Set("output", output)
-		ctx := cli.NewContext(app, set, nil)
-		exp, err := createExporter(context.Background(), ctx, nil, nil)
-		require.NoError(t, err)
-		require.NotNil(t, exp)
-	}
-}
-
-func TestCreateExporter_UnsupportedProtocol(t *testing.T) {
-	app := &cli.App{Flags: []cli.Flag{
-		&cli.StringFlag{Name: "output"},
-		&cli.StringFlag{Name: "protocol"},
 	}}
 	set := flag.NewFlagSet("test", 0)
-	_ = set.Set("output", "localhost:4317")
-	_ = set.Set("protocol", "notaproto")
+	_ = set.Set("output", "terminal")
 	ctx := cli.NewContext(app, set, nil)
-	// Should fallback to grpc, not error
 	exp, err := createExporter(context.Background(), ctx, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, exp)

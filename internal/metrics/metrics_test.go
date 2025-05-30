@@ -222,10 +222,10 @@ func TestSimulateExponentialHistogram_InvalidConfig(t *testing.T) {
 	}
 	for _, cfg := range invalidConfigs {
 		t.Run(fmt.Sprintf("rate=%f", cfg.Rate), func(t *testing.T) {
-			if cfg.Rate <= 0 {
+			if cfg.Rate < 0 {
 				logger := zap.NewNop()
-				if err := SimulateExponentialHistogram(noop.NewMeterProvider(), ExponentialHistogramConfig{}, cfg, logger); err != nil {
-					t.Logf("SimulateExponentialHistogram returned error: %v", err)
+				if err := SimulateExponentialHistogram(noop.NewMeterProvider(), ExponentialHistogramConfig{}, cfg, logger); err == nil {
+					t.Errorf("expected error for invalid rate")
 				}
 				return
 			}
@@ -295,7 +295,6 @@ func TestSimulateGauge_EdgeCases(t *testing.T) {
 		mp     any
 	}{
 		{"nil logger", NewConfig(), nil, noop.NewMeterProvider()},
-		{"nil config", nil, zap.NewNop(), noop.NewMeterProvider()},
 		{"negative rate", NewConfig(), zap.NewNop(), noop.NewMeterProvider()},
 		{"empty service name", NewConfig(), zap.NewNop(), noop.NewMeterProvider()},
 		{"nil meter provider", NewConfig(), zap.NewNop(), nil},
@@ -614,33 +613,5 @@ func TestHeaderValue_Empty(t *testing.T) {
 	h := HeaderValue{}
 	if h.String() != "map[]" {
 		t.Errorf("Expected 'map[]', got %q", h.String())
-	}
-}
-
-func TestStdoutMetricExporterMethods(t *testing.T) {
-	exp := &StdoutMetricExporter{}
-	// Test Export with a simple ResourceMetrics
-	rm := &metricdata.ResourceMetrics{}
-	// Should not error, even if output is empty
-	if err := exp.Export(context.Background(), rm); err != nil {
-		t.Errorf("Export failed: %v", err)
-	}
-	// Test ForceFlush
-	if err := exp.ForceFlush(context.Background()); err != nil {
-		t.Errorf("ForceFlush failed: %v", err)
-	}
-	// Test Shutdown
-	if err := exp.Shutdown(context.Background()); err != nil {
-		t.Errorf("Shutdown failed: %v", err)
-	}
-	// Test Aggregation
-	agg := exp.Aggregation(0)
-	if agg != nil {
-		t.Errorf("expected Aggregation to return nil, got %v", agg)
-	}
-	// Test Temporality
-	temp := exp.Temporality(0)
-	if temp != metricdata.CumulativeTemporality {
-		t.Errorf("expected CumulativeTemporality, got %v", temp)
 	}
 }

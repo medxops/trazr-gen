@@ -174,16 +174,6 @@ func TestTestLogExporter_CollectsRecords(t *testing.T) {
 	}
 }
 
-func TestCreateExporter_MissingEndpoint(t *testing.T) {
-	cfg := NewConfig()
-	cfg.UseHTTP = true
-	cfg.Output = ""
-	_, err := createExporter(cfg)
-	if err == nil {
-		t.Error("expected error for missing output")
-	}
-}
-
 func TestGenerateLogs_SingleLog(t *testing.T) {
 	cfg := NewConfig()
 	cfg.NumLogs = 1
@@ -201,17 +191,6 @@ func TestGenerateLogs_SingleLog(t *testing.T) {
 	wg.Wait()
 	if totalLogs.Load() == 0 {
 		t.Error("expected at least one log to be generated")
-	}
-}
-
-func TestRun_CreateExporterError(t *testing.T) {
-	cfg := NewConfig()
-	cfg.UseHTTP = true
-	cfg.Output = "" // Will trigger error in createExporter
-	logger := zap.NewNop()
-	err := Run(cfg, logger)
-	if err == nil {
-		t.Error("expected error when exporter creation fails")
 	}
 }
 
