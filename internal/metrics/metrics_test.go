@@ -63,16 +63,6 @@ func TestMapToIndex(t *testing.T) {
 	}
 }
 
-func TestRunWorker_InvalidConfig(t *testing.T) {
-	c := NewConfig()
-	c.TotalDuration = 1
-	logger := zap.NewNop()
-	err := run(c, logger, func(_ context.Context) {})
-	if err == nil {
-		t.Skip("Skipping: implementation runs for a long time with invalid config")
-	}
-}
-
 func TestRunWorker_ValidConfig(t *testing.T) {
 	c := NewConfig()
 	c.TotalDuration = 1
@@ -225,18 +215,6 @@ func TestProcessExponentialHistogramDataPoint_EmptyBuckets(_ *testing.T) {
 	processExponentialHistogramDataPoint(dataPoint, logger)
 }
 
-func TestSimulateSum_InvalidConfig(t *testing.T) {
-	t.Skip("Skipping: may panic or hang due to invalid config (zero/negative rate)")
-}
-
-func TestSimulateGauge_InvalidConfig(t *testing.T) {
-	t.Skip("Skipping: may panic or hang due to invalid config (zero/negative rate)")
-}
-
-func TestSimulateHistogram_InvalidConfig(t *testing.T) {
-	t.Skip("Skipping: may panic or hang due to invalid config (zero/negative rate)")
-}
-
 func TestSimulateExponentialHistogram_InvalidConfig(t *testing.T) {
 	invalidConfigs := []*Config{
 		{ServiceName: "test", Rate: 0, TotalDuration: 10 * time.Millisecond},
@@ -272,10 +250,6 @@ func TestSimulateExponentialHistogram_InvalidConfig(t *testing.T) {
 	}
 }
 
-func TestSimulateUpDownCounter_InvalidConfig(t *testing.T) {
-	t.Skip("Skipping: may panic or hang due to invalid config (zero/negative rate)")
-}
-
 func TestSimulateSum_EdgeCases(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -283,22 +257,14 @@ func TestSimulateSum_EdgeCases(t *testing.T) {
 		logger *zap.Logger
 		mp     any
 	}{
-		{"nil logger", NewConfig(), nil, noop.NewMeterProvider()},
 		{"nil config", nil, zap.NewNop(), noop.NewMeterProvider()},
 		{"negative rate", NewConfig(), zap.NewNop(), noop.NewMeterProvider()},
 		{"empty service name", NewConfig(), zap.NewNop(), noop.NewMeterProvider()},
-		{"large rate", NewConfig(), zap.NewNop(), noop.NewMeterProvider()},
 		{"large num metrics", NewConfig(), zap.NewNop(), noop.NewMeterProvider()},
 		{"nil meter provider", NewConfig(), zap.NewNop(), nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.name == "nil logger" {
-				t.Skip("Skipping: nil logger causes panic in SimulateCounter")
-			}
-			if tt.name == "large rate" || tt.name == "large num metrics" {
-				t.Skip("skipping impractically large test case")
-			}
 			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancel()
 			ch := make(chan struct{})
@@ -332,15 +298,10 @@ func TestSimulateGauge_EdgeCases(t *testing.T) {
 		{"nil config", nil, zap.NewNop(), noop.NewMeterProvider()},
 		{"negative rate", NewConfig(), zap.NewNop(), noop.NewMeterProvider()},
 		{"empty service name", NewConfig(), zap.NewNop(), noop.NewMeterProvider()},
-		{"large rate", NewConfig(), zap.NewNop(), noop.NewMeterProvider()},
-		{"large num metrics", NewConfig(), zap.NewNop(), noop.NewMeterProvider()},
 		{"nil meter provider", NewConfig(), zap.NewNop(), nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.name == "large rate" || tt.name == "large num metrics" {
-				t.Skip("skipping impractically large test case")
-			}
 			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancel()
 			ch := make(chan struct{})
@@ -377,15 +338,10 @@ func TestSimulateHistogram_EdgeCases(t *testing.T) {
 		{"nil config", nil, zap.NewNop(), noop.NewMeterProvider(), true},
 		{"negative rate", NewConfig(), zap.NewNop(), noop.NewMeterProvider(), true},
 		{"empty service name", NewConfig(), zap.NewNop(), noop.NewMeterProvider(), true},
-		{"large rate", NewConfig(), zap.NewNop(), noop.NewMeterProvider(), false},
-		{"large num metrics", NewConfig(), zap.NewNop(), noop.NewMeterProvider(), false},
 		{"nil meter provider", NewConfig(), zap.NewNop(), nil, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.name == "large rate" || tt.name == "large num metrics" {
-				t.Skip("skipping impractically large test case")
-			}
 			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancel()
 			ch := make(chan struct{})
@@ -426,15 +382,10 @@ func TestSimulateExponentialHistogram_EdgeCases(t *testing.T) {
 		{"nil config", nil, zap.NewNop(), noop.NewMeterProvider(), true},
 		{"negative rate", NewConfig(), zap.NewNop(), noop.NewMeterProvider(), true},
 		{"empty service name", NewConfig(), zap.NewNop(), noop.NewMeterProvider(), true},
-		{"large rate", NewConfig(), zap.NewNop(), noop.NewMeterProvider(), false},
-		{"large num metrics", NewConfig(), zap.NewNop(), noop.NewMeterProvider(), false},
 		{"nil meter provider", NewConfig(), zap.NewNop(), nil, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.name == "large rate" || tt.name == "large num metrics" {
-				t.Skip("skipping impractically large test case")
-			}
 			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancel()
 			ch := make(chan struct{})
@@ -474,15 +425,10 @@ func TestSimulateUpDownCounter_EdgeCases(t *testing.T) {
 		{"nil logger", NewConfig(), nil, noop.NewMeterProvider(), false},
 		{"nil config", nil, zap.NewNop(), noop.NewMeterProvider(), true},
 		{"empty service name", NewConfig(), zap.NewNop(), noop.NewMeterProvider(), true},
-		{"large rate", NewConfig(), zap.NewNop(), noop.NewMeterProvider(), false},
-		{"large num metrics", NewConfig(), zap.NewNop(), noop.NewMeterProvider(), false},
 		{"nil meter provider", NewConfig(), zap.NewNop(), nil, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.name == "large rate" || tt.name == "large num metrics" {
-				t.Skip("skipping impractically large test case")
-			}
 			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancel()
 			ch := make(chan struct{})

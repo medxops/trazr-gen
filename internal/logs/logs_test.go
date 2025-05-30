@@ -47,13 +47,6 @@ func TestRandomHTTPStatusCode_Valid(t *testing.T) {
 	}
 }
 
-func TestGeneratePodName_Format(t *testing.T) {
-	name := generatePodName()
-	if len(name) < 10 || name[:11] != "trazr-gen-pod" {
-		t.Skipf("Pod name format unexpected: %s (skipping test)", name)
-	}
-}
-
 func TestRandomSeverity_Valid(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		_, text := randomSeverity()
@@ -143,34 +136,6 @@ func TestCryptoRandIntn_Range(t *testing.T) {
 // 		t.Errorf("Expected no error, got %v", err)
 // 	}
 // }
-
-func TestRun_NoNumLogsOrDuration(t *testing.T) {
-	t.Skip("Skipping: calls logs.Run with real exporter, may hang or make network calls")
-}
-
-func TestRun_NegativeRate(t *testing.T) {
-	t.Skip("Skipping: calls logs.Run with real exporter, may hang or make network calls")
-}
-
-func TestRun_ZeroRate(t *testing.T) {
-	t.Skip("Skipping: calls logs.Run with real exporter, may hang or make network calls")
-}
-
-func TestRun_NegativeNumLogs(t *testing.T) {
-	t.Skip("Skipping: calls logs.Run with real exporter, may hang or make network calls")
-}
-
-func TestRun_EmptyServiceName(t *testing.T) {
-	t.Skip("Skipping: calls logs.Run with real exporter, may hang or make network calls")
-}
-
-func TestRun_NumLogsAndDurationZero(t *testing.T) {
-	t.Skip("Skipping: calls logs.Run with real exporter, may hang or make network calls")
-}
-
-func TestRun_InvalidExporter(t *testing.T) {
-	t.Skip("Skipping: calls logs.Run with real exporter, may hang or make network calls")
-}
 
 // testLogExporter is a simple in-memory exporter for unit tests
 // It collects all exported log records for assertions.
