@@ -37,7 +37,7 @@ If you're on macOS or Linux and have Homebrew installed, you can easily install 
 
 1.  **Tap our Homebrew repository:**
     ```bash
-    brew tap medxops/tap
+    brew tap medxops/toolkit
     ```
 2.  **Install Trazr-Gen:**
     ```bash

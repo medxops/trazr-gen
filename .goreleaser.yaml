@@ -83,7 +83,7 @@ brews:
   - name: trazr-gen
     repository:
       owner: 'medxops'
-      name: 'toolkit' # Ensure this is the correct repository for your Homebrew tap
+      name: 'homebrew-toolkit'
     homepage: https://github.com/medxops/trazr-gen
     description: "A tool to generate synthetic OpenTelemetry logs, metrics and traces telemetry data."
     install: |
