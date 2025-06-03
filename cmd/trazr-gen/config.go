@@ -22,6 +22,9 @@ var (
 	metricsCfg *metrics.Config
 	logsCfg    *logs.Config
 	configFile string
+
+	// Version information, injected by GoReleaser via ldflags
+	version = "-development"
 )
 
 const rootHelpTemplate = `
@@ -65,6 +68,23 @@ var rootCmd = &cobra.Command{
 	Use:     "trazr-gen",
 	Short:   "Trazr-gen simulates a client generating traces, metrics, and logs",
 	Example: "trazr-gen traces\ntrazr-gen metrics\ntrazr-gen logs",
+	RunE: func(cmd *cobra.Command, _ []string) error {
+		showVersion, _ := cmd.Flags().GetBool("version")
+		if showVersion {
+			fmt.Printf("version: v%s\n", version)
+			return nil
+		}
+		return cmd.Help()
+	},
+}
+
+// Version command prints the version in v.x.x.x format
+var versionCmd = &cobra.Command{
+	Use:   "version",
+	Short: "Print the version information",
+	Run: func(_ *cobra.Command, _ []string) {
+		fmt.Printf("trazr-gen version: v%s\n", version)
+	},
 }
 
 // tracesCmd is the command responsible for sending traces
@@ -111,6 +131,10 @@ var logsCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(tracesCmd, metricsCmd, logsCmd)
+	rootCmd.AddCommand(versionCmd)
+
+	// Prevent Cobra from printing usage on error
+	rootCmd.SilenceUsage = true
 
 	tracesCfg = traces.NewConfig()
 	tracesCfg.Flags(tracesCmd.Flags())
@@ -129,6 +153,9 @@ func init() {
 	// Disabling completion command for end user
 	// https://github.com/spf13/cobra/blob/master/shell_completions.md
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
+
+	// Add -v and --version as persistent flags
+	rootCmd.PersistentFlags().BoolP("version", "v", false, "Print the version information and exit")
 
 	rootCmd.PersistentFlags().StringVar(&configFile, "config", "", "use a config file instead of command line parameters (YAML)")
 	if err := viper.BindPFlag("config", rootCmd.PersistentFlags().Lookup("config")); err != nil {
