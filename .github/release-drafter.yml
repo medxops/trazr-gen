@@ -1,7 +1,7 @@
  .github/release-drafter.yml
 
-name-template: 'v$RESOLVED_VERSION'
-tag-template: 'v$RESOLVED_VERSION'
+name-template: 'v$NEXT_VERSION'
+tag-template: 'v$NEXT_VERSION'
 
 categories:
   - title: '🚀 Features'
@@ -26,9 +26,9 @@ categories:
     labels:
       - 'chore'
       - 'dependencies'
-  - title: 'Other Changes' # Catch-all for anything not explicitly categorized
+  - title: 'Other Changes'
     labels:
-      - '*'
+      - 'misc'
 
 change-template: '- $TITLE (#$NUMBER) @$AUTHOR'
 
@@ -37,5 +37,5 @@ template: |
   $CHANGES_OR_NO_CHANGES
 
   ---
-  **Full Changelog**: https://github.com/${{ github.repository }}/compare/$PREVIOUS_TAG...$RESOLVED_VERSION
+  **Full Changelog**: https://github.com/${{ github.repository }}/compare/$PREVIOUS_TAG...v$NEXT_VERSION
   **Contributors**: @$CONTRIBUTORS_LOGIN
