@@ -67,20 +67,12 @@ require (
 )
 
 retract (
-	v0.0.0-test
-	v0.0.1-test
-	v0.0.2-test
-	v0.0.3-test
 	[v0.1.0, v0.2.3]
+	v0.0.3-test
+	v0.0.2-test
+	v0.0.1-test
+	v0.0.0-test
 )
-
-replace github.com/medxops/trazr-gen/internal/common => ./internal/common
-
-replace github.com/medxops/trazr-gen/pkg/logs => ./pkg/logs
-
-replace github.com/medxops/trazr-gen/pkg/metrics => ./pkg/metrics
-
-replace github.com/medxops/trazr-gen/pkg/traces => ./pkg/traces
 
 // IMPORTANT NOTE: Do not add replace statements to this go.mod. This will break go install.
 // See https://github.com/open-telemetry/opentelemetry-collector-contrib/issues/27855.
