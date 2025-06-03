@@ -8,11 +8,12 @@ coverage:
   status:
     patch:
       default:
-        enabled: false
+        enabled: true
+        target: 50
     project:
       default:
         enabled: true
-        target: 60
+        target: 50
   round: up
   range: 0..10
 
