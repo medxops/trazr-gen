@@ -35,5 +35,5 @@ template: |
   $CHANGES_OR_NO_CHANGES
 
   ---
-  **Full Changelog**: https://github.com/${{ github.repository }}/compare/$PREVIOUS_TAG...v$NEXT_VERSION
-  **Contributors**: @$CONTRIBUTORS_LOGIN
+  **Full Changelog**: https://github.com/$REPOSITORY/compare/$PREVIOUS_TAG...v$NEXT_VERSION
+  **Contributors**: $CONTRIBUTORS
