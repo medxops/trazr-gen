@@ -39,6 +39,12 @@ jobs:
 
       - name: Build only
         run: |
+          # Ensure binary is in root for Docker build
+          if [ -f ./build/trazr-gen ]; then
+            cp ./build/trazr-gen ./trazr-gen
+          elif [ ! -f ./trazr-gen ]; then
+            echo "Binary not found in ./build or root!" && exit 1
+          fi
           docker buildx build \
             --platform linux/amd64 \
             -t ${{ env.REGISTRY_IMAGE }}:${{ github.sha }} \
