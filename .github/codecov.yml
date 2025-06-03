@@ -5,6 +5,14 @@ coverage:
 
 # Repository YAML [higher on hierarchy]
 coverage:
+  status:
+    patch:
+      default:
+        enabled: false
+    project:
+      default:
+        enabled: true
+        target: 60
   round: up
   range: 0..10
 
