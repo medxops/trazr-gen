@@ -1,0 +1,101 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+    - go generate ./...
+
+snapshot:
+  version_template: "{{ .Tag }}-next"
+
+signs:
+  - artifacts: checksum
+    cmd: gpg
+    args:
+      - "--batch"
+      - "-u"
+      - "{{ .Env.GPG_FINGERPRINT }}"
+      - "--output"
+      - "${signature}"
+      - "--detach-sign"
+      - "${artifact}"
+
+release:
+  draft: false
+  prerelease: auto
+
+builds:
+  - main: ./cmd/trazr-gen
+    binary: trazr-gen
+    env: [CGO_ENABLED=0]
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64  
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.ShortCommit}} -X main.date={{.CommitDate}}
+    mod_timestamp: '{{ .CommitTimestamp }}'
+
+archives:
+  - name_template: '{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}'
+    format_overrides:
+    - goos: windows
+      formats: [zip]
+    wrap_in_directory: true
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+    - '^docs:'
+    - '^test:'
+    - Merge pull request
+    - Merge branch
+
+dockers:
+  - dockerfile: Dockerfile # Path to your Dockerfile (usually in the root)
+    image_templates:
+      - "{{ .Env.DOCKER_REGISTRY }}/medxops/trazr-gen:{{ .Version }}"
+      - "{{ .Env.DOCKER_REGISTRY }}/medxops/trazr-gen:latest"
+    build_flag_templates:
+      - --pull
+      - --label=org.opencontainers.image.created={{ .Date }}
+      - --label=org.opencontainers.image.name={{ .ProjectName }}
+      - --label=org.opencontainers.image.revision={{ .Commit }}
+      - --label=org.opencontainers.image.version={{ .Version }}
+      - --platform=linux/amd64 # Only build for linux/amd64 for Docker image
+    skip_push: false # Set to true to test the build without pushing
+
+sboms:
+  - artifacts: archive
+    cmd: syft
+    args: ["$artifact", "--output", "spdx-json=$document"]
+    documents:
+      - "${artifact}.spdx.json"
+
+brews:
+  - name: trazr-gen
+    repository:
+      owner: 'medxops'
+      name: 'toolkit' # Ensure this is the correct repository for your Homebrew tap
+    homepage: https://github.com/medxops/trazr-gen
+    description: "A tool to generate synthetic OpenTelemetry logs, metrics and traces telemetry data."
+    install: |
+      bin.install "trazr-gen"
+    test: |
+      system "#{bin}/trazr-gen -v"
+    # Important: For Homebrew, you typically need to specify a URL template for the binary
+    # and a SHA256 checksum, which GoReleaser calculates.
+    # GoReleaser usually handles this by default for standard archives.
+    # If your brew formula PRs fail, check GoReleaser docs on this.
+    # Example:
+    # url_template: "https://github.com/medxops/trazr-gen/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
+    # You might also need to specify a goos and goarch for the brew formula, e.g., darwin_amd64.
+    # goos: ['darwin'] # Ensures it builds for macOS
+    # goarch: ['amd64', 'arm64'] # Ensures it builds for macOS architectures

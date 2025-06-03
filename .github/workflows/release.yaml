@@ -1,0 +1,167 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - '*'
+  workflow_dispatch:
+
+env:
+  GO_VERSION: "1.23"
+  DOCKER_REGISTRY: "ghcr.io"
+  GPG_FINGERPRINT: "6E8C453EBABA12E3D280259AFE3AF46D1C90032A"
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+    steps:
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+        continue-on-error: true
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Set up Go
+        uses: actions/setup-go@0a12ed9d6a96ab950c8f026ed9f722fe0da7ef32
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
+      - name: Add Go bin to PATH
+        run: echo "${HOME}/go/bin" >> $GITHUB_PATH
+      - name: Build
+        run: go build -v ./...
+      - name: Run Tests
+        run: go test -v ./...
+      - name: Run Snyk Security Scan and Generate SARIF
+        uses: snyk/actions/golang@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          command: test
+          args: --sarif-file-output=snyk.sarif --severity-threshold=high
+      - name: Upload Snyk SARIF to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: snyk.sarif
+        env:
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+      - name: Upload Snyk SARIF as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: snyk-sarif
+          path: snyk.sarif
+          if-no-files-found: ignore
+
+  goreleaser:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      pull-requests: write  # Added for Homebrew tap updates
+      security-events: write
+    steps:
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+        continue-on-error: true # Allow workflow to proceed if cache is unavailable (network or cache miss)
+      - name: Checkout
+        uses: actions/checkout@v4 
+        with:
+          fetch-depth: 0
+      - name: Set up Go
+        uses: actions/setup-go@0a12ed9d6a96ab950c8f026ed9f722fe0da7ef32
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
+      - name: Add Go bin to PATH
+        run: echo "${HOME}/go/bin" >> $GITHUB_PATH
+      - name: Import GPG key
+        id: import_gpg
+        uses: crazy-max/ghaction-import-gpg@v6
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY_B64 }}
+          passphrase: ""
+      - name: Login to GitHub Packages Docker Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          install-only: true
+          version: "v2.8.0"
+      - name: Print GoReleaser version
+        run: goreleaser --version
+      - name: Check GoReleaser config
+        run: goreleaser check
+      - name: List GPG secret keys
+        run: gpg --list-secret-keys --with-fingerprint
+      - name: GPG version
+        run: gpg --version
+      - name: Install Syft
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin v0.95.0
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "v2.8.0"
+          args: release --clean --timeout=60m
+        env:
+          GITHUB_TOKEN: ${{ secrets.GORELEASER_TOKEN }}
+          GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
+          GPG_TTY: $(tty)
+      - name: Cleanup GPG
+        run: rm -rf ~/.gnupg
+      # - name: Slack Notification
+      #   uses: slackapi/slack-github-action@v1.25.0
+      #   with:
+      #     payload: '{"text":":rocket: Release completed for ${{ github.repository }} tag ${{ github.ref }} by ${{ github.actor }}"}'
+      #   env:
+      #     SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      #   if: success()
+      # - name: Teams Notification
+      #   uses: aliencube/microsoft-teams-actions@v1.3.0
+      #   with:
+      #     webhook-uri: ${{ secrets.TEAMS_WEBHOOK_URL }}
+      #     message: |
+      #       Release completed for ${{ github.repository }} tag ${{ github.ref }} by ${{ github.actor }}
+      #   if: success()
+      # - name: Email Notification
+      #   uses: dawidd6/action-send-mail@v3
+      #   with:
+      #     server_address: smtp.example.com
+      #     server_port: 465
+      #     username: ${{ secrets.SMTP_USERNAME }}
+      #     password: ${{ secrets.SMTP_PASSWORD }}
+      #     subject: "Release completed for ${{ github.repository }}"
+      #     to: team@example.com
+      #     from: github-actions@example.com
+      #     body: |
+      #       Release completed for ${{ github.repository }} tag ${{ github.ref }} by ${{ github.actor }}
+      #   if: success()

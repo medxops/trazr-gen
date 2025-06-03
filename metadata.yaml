@@ -1,0 +1,10 @@
+type: trazr-gen
+
+status:
+  disable_codecov_badge: true
+  class: cmd
+  stability:
+    alpha: [traces]
+    development: [metrics, logs]
+  codeowners:
+    active: [stperic]

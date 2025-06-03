@@ -1,0 +1,59 @@
+name: Run tests and upload coverage
+
+on:
+  push:
+    branches: [main, '**']
+  pull_request:
+
+jobs:
+  test:
+    name: test (Go ${{ matrix.go-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: [1.23]
+    env:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+      - name: Install dependencies
+        run: go mod download
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+      - name: Run tests (with coverage for artifact)
+        run: go test -coverprofile=coverage.out ./...
+      - name: Run tests (with coverage for Codecov)
+        run: go test -coverprofile=coverage.txt ./...
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.go-version }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: coverage.out
+      - name: Upload results to Codecov
+        if: env.CODECOV_TOKEN != null && env.CODECOV_TOKEN != ''
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ env.CODECOV_TOKEN }}
+          slug: medxops/trazr-gen
+          files: coverage.txt
+      # - name: Upload coverage to Codecov
+      #   uses: codecov/codecov-action@v4
+      #   with:
+      #     files: coverage.out
+      #     flags: unittests
+      #     token: ${{ secrets.CODECOV_TOKEN }} # Only needed for private repos
+      # Uncomment the above step after setting up your Codecov account and adding the CODECOV_TOKEN secret if needed. 

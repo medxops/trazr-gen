@@ -1,0 +1,75 @@
+# Example config.yaml for trazr-gen
+# All parameters are shown with their default values.
+# Uncomment and adjust as needed.
+# Use --config to load this file.
+
+# Global/Common settings
+# NOTE: If both rate and duration are set to 0, generation will run infinitely and as fast as possible (no throttling),
+# until the process is manually stopped (e.g., Ctrl+C). Set either to a positive value to limit generation.
+
+workers: 1                            # Number of workers (goroutines) to run (default: 1)
+rate: 1                               # How many metrics/spans/logs per second each worker should generate. 0 = no throttling (default: 1)
+                                      # If rate=0 and duration=0, generation is infinite and unthrottled until manually stopped.
+duration: 0                           # For how long to run the test (e.g., 5s, 1m). 0 = run forever (default: 0)
+interval: 1s                          # Reporting interval (default: 1s)
+mock-data: true                       # Use mock data templates (default: false)
+log-level: info                       # Log level: debug, info, warn, error (default: info)
+terminal-output: true                 # Enable or disable terminal (human) output. Set to false to suppress log json output (default: true)
+
+# OTLP exporter settings
+otlp-endpoint: localhost:4318         # Destination endpoint for exporting logs, metrics, and traces (default: localhost:4318)
+otlp-insecure: true                   # Enable insecure client transport for exporter connection (default: true)
+otlp-insecure-skip-verify: true       # Skip server certificate verification (default: true)
+otlp-http: true                       # Use HTTP exporter instead of gRPC (default: true)
+service: trazr-gen                    # Service name to use (default: trazr-gen)
+ca-cert: ""                           # Trusted CA for server certificate verification (default: "")
+mtls: false                           # Require client authentication for mTLS (default: false)
+client-cert: ""                       # Client certificate file for mTLS (default: "")
+client-key: ""                        # Client private key file for mTLS (default: "")
+
+# Custom headers and attributes (repeatable as map)
+otlp-header: {}                      # e.g. {"key1": "value1", "key2": "value2"}, mock-data supports (default: {})
+otlp-attributes: 
+  host.ip: '{{IPv4Address}}'
+telemetry-attributes: 
+  patient.name: '{{Name}}'
+  patient.mrn: 'MRN{{Number 100000 999999}}'
+  patient.ssn: '{{SSN}}'
+  patient.dob: '{{DateRange (ToDate "1924-01-01") (ToDate "2024-12-31")}}'
+  error.code: '{{ErrorHTTPClient}}'
+  encounter.procedure: "{{LoremIpsumSentence 10}}"
+  encounter.type: '{{RandomString (SliceString "inpatient" "outpatient" "emergency")}}'
+  credit.card.number: '{{CreditCard}}'
+
+sensitive-data: [patient.ssn, patient.dob, patient.mrn, host.ip,credit.card.number]                  # Sensitive attribute/header keys (list) (default: [])
+
+
+# --- Traces subcommand options ---
+traces:
+  otlp-http-url-path: "/v1/traces"    # URL path for HTTP OTLP exporter (default: "/v1/traces")
+  traces: 1                           # Number of traces to generate per worker (ignored if duration is set) (default: 1)
+  child-spans: 1                      # Number of child spans per trace (default: 1)
+  marshal: false                      # Marshal trace context via HTTP headers (default: false)
+  status-code: "0"                    # Status code for spans: Unset, Error, Ok, or 0/1/2 (default: "0")
+  batch: true                         # Batch traces before sending (default: true)
+  size: 0                             # Minimum size in MB of string data per trace (default: 0)
+  span-duration: 123us                # Duration of each generated span (default: 123us)
+
+# --- Metrics subcommand options ---
+metrics:
+  otlp-http-url-path: "/v1/metrics"   # URL path for HTTP OTLP exporter (default: "/v1/metrics")
+  metrics: 1                          # Number of metrics to generate per worker (ignored if duration is set) (default: 1)
+  trace-id: ""                        # TraceID to use as exemplar (default: "")
+  span-id: ""                         # SpanID to use as exemplar (default: "")
+  metric-type: "Gauge"                # Metric type: Gauge, Sum, Histogram (default: "Gauge")
+  aggregation-temporality: "cumulative" # Aggregation temporality: delta, cumulative (default: "cumulative")
+
+# --- Logs subcommand options ---
+logs:
+  otlp-http-url-path: "/v1/logs"      # URL path for HTTP OTLP exporter (default: "/v1/logs")
+  logs: 1                             # Number of logs to generate per worker (ignored if duration is set) (default: 1)
+  body:                               # Body of the log,  Mock-data supports (default: "Log message")
+    "{{ErrorDatabase}} - Patient Not Found: MRN{{Number 100000 999999}}"
+  severity-number: "{{Number 1 24}}"  # Severity number (1-24) or random "{{IntRange 1 24}}" (default: "9")
+  trace-id: ""                        # TraceID of the log (default: "")
+  span-id: ""                         # SpanID of the log (default: "") 

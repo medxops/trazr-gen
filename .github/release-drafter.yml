@@ -1,0 +1,41 @@
+ .github/release-drafter.yml
+
+name-template: 'v$RESOLVED_VERSION'
+tag-template: 'v$RESOLVED_VERSION'
+
+categories:
+  - title: '🚀 Features'
+    labels:
+      - 'feature'
+      - 'feat'
+  - title: '🐛 Bug Fixes'
+    labels:
+      - 'bug'
+      - 'fix'
+  - title: '📝 Documentation'
+    labels:
+      - 'docs'
+  - title: '🧑‍💻 Refactoring'
+    labels:
+      - 'refactor'
+  - title: '🔧 Build & CI'
+    labels:
+      - 'build'
+      - 'ci'
+  - title: '🧰 Maintenance'
+    labels:
+      - 'chore'
+      - 'dependencies'
+  - title: 'Other Changes' # Catch-all for anything not explicitly categorized
+    labels:
+      - '*'
+
+change-template: '- $TITLE (#$NUMBER) @$AUTHOR'
+
+template: |
+  ## What's Changed
+  $CHANGES_OR_NO_CHANGES
+
+  ---
+  **Full Changelog**: https://github.com/${{ github.repository }}/compare/$PREVIOUS_TAG...$RESOLVED_VERSION
+  **Contributors**: @$CONTRIBUTORS_LOGIN
