@@ -37,9 +37,19 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build only
+      - name: Build trazr-gen binary
         run: |
-          # Ensure binary is in root for Docker build
+          set -e
+          mkdir -p build
+          go build -o build/trazr-gen ./cmd/trazr-gen
+          ls -l build
+          if [ ! -f build/trazr-gen ]; then
+            echo "Build failed: binary not found!"
+            exit 1
+          fi
+
+      - name: Ensure binary is in root for Docker build
+        run: |
           if [ -f ./build/trazr-gen ]; then
             cp ./build/trazr-gen ./trazr-gen
           elif [ ! -f ./trazr-gen ]; then
