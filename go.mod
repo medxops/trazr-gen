@@ -67,9 +67,11 @@ require (
 )
 
 retract (
-	v0.76.2
-	v0.76.1
-	v0.65.0
+	v0.0.0-test
+	v0.0.1-test
+	v0.0.2-test
+	v0.0.3-test
+	[v0.1.0, v0.2.3]
 )
 
 replace github.com/medxops/trazr-gen/internal/common => ./internal/common
