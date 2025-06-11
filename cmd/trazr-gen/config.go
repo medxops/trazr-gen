@@ -33,35 +33,29 @@ const rootHelpTemplate = `
 ║              OpenTelemetry Signal Generator              ║
 ╚══════════════════════════════════════════════════════════╝
 
-
 {{with (or .Long .Short)}}{{. | trimTrailingWhitespaces}}{{end}}
-{{if .Runnable}}
-Usage:
+
+{{if .Runnable}}Usage:
   {{.UseLine}}
 {{end}}
-{{if .HasAvailableSubCommands}}
-Available Commands:
+
+{{if .HasAvailableSubCommands}}Available Commands:
 {{range .Commands}}{{if (or .IsAvailableCommand (eq .Name "help"))}}  {{rpad .Name .NamePadding }} {{.Short}}
-{{end}}{{end}}
-{{end}}
-{{if .HasExample}}
-Examples:
+{{end}}{{end}}{{end}}
+
+{{if .HasExample}}Examples:
 {{.Example}}
 {{end}}
-{{if .HasAvailableLocalFlags}}
-Flags:
-{{.LocalFlags.FlagUsages | trimTrailingWhitespaces}}
-{{end}}
-{{if .HasAvailableInheritedFlags}}
-Global Flags:
-{{.InheritedFlags.FlagUsages | trimTrailingWhitespaces}}
-{{end}}
-{{if .HasHelpSubCommands}}
-Additional help topics:
+
+{{if .HasAvailableLocalFlags}}Flags:
+{{.LocalFlags.FlagUsages | trimRightSpace}}{{end}}
+
+{{if .HasAvailableInheritedFlags}}Global Flags:
+{{.InheritedFlags.FlagUsages | trimRightSpace}}{{end}}
+{{if .HasHelpSubCommands}}Additional help topics:
 {{range .Commands}}{{if .IsAdditionalHelpTopicCommand}}  {{rpad .CommandPath .CommandPathPadding}} {{.Short}}
-{{end}}{{end}}
-{{end}}
-Tip: Run 'trazr-gen [command] --help' for more details on each subcommand.`
+{{end}}{{end}}{{end}}Tip: Run 'trazr-gen [command] --help' for more details on each subcommand.
+`
 
 // rootCmd is the root command on which will be run children commands
 var rootCmd = &cobra.Command{
@@ -177,11 +171,6 @@ func init() {
 		initConfig()
 
 		if logsCfg.TerminalOutput {
-			fmt.Println("╔══════════════════════════════════════════════════════════╗")
-			fmt.Println("║                    T R A Z R - G E N                     ║")
-			fmt.Println("║              OpenTelemetry Signal Generator              ║")
-			fmt.Println("╚══════════════════════════════════════════════════════════╝")
-
 			switch cmd.Name() {
 			case "traces":
 				common.ShowNonDefaultConfig(tracesCfg)

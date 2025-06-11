@@ -138,7 +138,20 @@ func TestLogsWithNoTelemetryAttributes(t *testing.T) {
 	// verify
 	require.Len(t, m.logs, 2)
 	for _, log := range m.logs {
-		assert.Equal(t, 1, log.AttributesLen(), "shouldn't have more than 1 attribute")
+		// Should have 0 telemetry attributes
+		assert.Equal(t, 0, log.AttributesLen(), "shouldn't have more than 0 telemetry attributes")
+		// Check service.name in resource attributes
+		res := log.Resource()
+		attrs := (&res).Attributes()
+		found := false
+		for _, attr := range attrs {
+			if string(attr.Key) == "service.name" {
+				found = true
+				assert.Equal(t, cfg.ServiceName, attr.Value.AsString())
+				break
+			}
+		}
+		assert.True(t, found, "service.name should be present in resource attributes")
 	}
 }
 
@@ -157,14 +170,26 @@ func TestLogsWithOneTelemetryAttributes(t *testing.T) {
 	// verify
 	require.Len(t, m.logs, qty)
 	for _, l := range m.logs {
-		assert.Equal(t, 2, l.AttributesLen(), "shouldn't have less than 2 attributes")
-
+		// Should have 1 telemetry attribute
+		assert.Equal(t, 1, l.AttributesLen(), "should have exactly 1 telemetry attribute")
 		l.WalkAttributes(func(attr log.KeyValue) bool {
 			if attr.Key == telemetryAttrKeyOne {
 				assert.Equal(t, telemetryAttrValueOne, attr.Value.AsString())
 			}
 			return true
 		})
+		// Check service.name in resource attributes
+		res := l.Resource()
+		attrs := (&res).Attributes()
+		found := false
+		for _, attr := range attrs {
+			if string(attr.Key) == "service.name" {
+				found = true
+				assert.Equal(t, cfg.ServiceName, attr.Value.AsString())
+				break
+			}
+		}
+		assert.True(t, found, "service.name should be present in resource attributes")
 	}
 }
 
@@ -183,7 +208,20 @@ func TestLogsWithMultipleTelemetryAttributes(t *testing.T) {
 	// verify
 	require.Len(t, m.logs, qty)
 	for _, l := range m.logs {
-		assert.Equal(t, 3, l.AttributesLen(), "shouldn't have less than 3 attributes")
+		// Should have 2 telemetry attributes
+		assert.Equal(t, 2, l.AttributesLen(), "should have exactly 2 telemetry attributes")
+		// Check service.name in resource attributes
+		res := l.Resource()
+		attrs := (&res).Attributes()
+		found := false
+		for _, attr := range attrs {
+			if string(attr.Key) == "service.name" {
+				found = true
+				assert.Equal(t, cfg.ServiceName, attr.Value.AsString())
+				break
+			}
+		}
+		assert.True(t, found, "service.name should be present in resource attributes")
 	}
 }
 
@@ -263,6 +301,7 @@ func configWithNoAttributes(qty int, body string) *Config {
 		Config: common.Config{
 			WorkerCount:         1,
 			TelemetryAttributes: nil,
+			ServiceName:         "test-service",
 		},
 		SeverityText:   "Info",
 		SeverityNumber: "9",
@@ -276,6 +315,7 @@ func configWithOneAttribute(qty int, body string) *Config {
 		Config: common.Config{
 			WorkerCount:         1,
 			TelemetryAttributes: common.KeyValue{telemetryAttrKeyOne: telemetryAttrValueOne},
+			ServiceName:         "test-service",
 		},
 		SeverityText:   "Info",
 		SeverityNumber: "9",
@@ -290,6 +330,7 @@ func configWithMultipleAttributes(qty int, body string) *Config {
 		Config: common.Config{
 			WorkerCount:         1,
 			TelemetryAttributes: kvs,
+			ServiceName:         "test-service",
 		},
 		SeverityText:   "Info",
 		SeverityNumber: "9",

@@ -25,10 +25,6 @@ import (
 )
 
 const tracesHelpTemplate = `
-╔══════════════════════════════════════════════════════════╗
-║                    T R A Z R - G E N                     ║
-║              OpenTelemetry Signal Generator              ║
-╚══════════════════════════════════════════════════════════╝
 {{with (or .Long .Short)}}{{. | trimTrailingWhitespaces}}{{end}}
 {{if .Runnable}}
 Usage:
