@@ -69,11 +69,7 @@ dockers:
       - --label=org.opencontainers.image.name={{ .ProjectName }}
       - --label=org.opencontainers.image.revision={{ .Commit }}
       - --label=org.opencontainers.image.version={{ .Version }}
-    goos:
-      - linux
-    goarch:
-      - amd64
-      - arm64
+      - --platform=linux/amd64,linux/arm64
     skip_push: false # Set to true to test the build without pushing
 
 sboms:
