@@ -118,6 +118,10 @@ jobs:
         with:
           driver: docker-container 
           driver-opts: image=moby/buildkit:latest 
+      - name: Create and use Buildx builder
+        run: |
+          docker buildx create --name mybuilder --driver docker-container --bootstrap --use
+          docker buildx inspect --bootstrap
       - name: Install GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
