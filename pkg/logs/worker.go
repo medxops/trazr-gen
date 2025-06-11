@@ -134,7 +134,6 @@ func (w worker) simulateLogs(cfg *Config, res *resource.Resource, exporter sdklo
 
 		// --- Convert to log.KeyValue and add service.name (only once) ---
 		attrs := attrToLogKeyValue(attrKVs)
-		attrs = append([]log.KeyValue{log.String("service.name", cfg.ServiceName)}, attrs...)
 
 		// --- Process severity number with gofakeit templating per log entry ---
 		severityNumberStr := w.severityNumber
