@@ -4,7 +4,6 @@ status:
   disable_codecov_badge: true
   class: cmd
   stability:
-    alpha: [traces]
-    development: [metrics, logs]
+    development: [traces, metrics, logs]
   codeowners:
     active: [stperic]

@@ -76,10 +76,28 @@ func attributesFromMap(attrs map[string]any) []attribute.KeyValue {
 // - trazr.mock.data (keys with mock data templates)
 // Note: logBody is not relevant for resource attributes, so pass "".
 func (c *Config) GetResourceAttrWithMockMarker() ([]attribute.KeyValue, error) {
+	var attrs []attribute.KeyValue
+	var err error
 	if c.MockData {
-		return ProcessMockMarkers(c.ResourceAttributes)
+		attrs, err = ProcessMockMarkers(c.ResourceAttributes)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		attrs = attributesFromMap(c.ResourceAttributes)
 	}
-	return attributesFromMap(c.ResourceAttributes), nil
+	// Ensure service.name is always present as a resource attribute
+	found := false
+	for _, attr := range attrs {
+		if string(attr.Key) == "service.name" {
+			found = true
+			break
+		}
+	}
+	if !found && c.ServiceName != "" {
+		attrs = append(attrs, attribute.String("service.name", c.ServiceName))
+	}
+	return attrs, nil
 }
 
 // GetTelemetryAttrWithMockMarker returns telemetry attributes as OpenTelemetry KeyValue pairs, including:
