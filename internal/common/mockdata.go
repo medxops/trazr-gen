@@ -53,7 +53,6 @@ func ProcessMockTemplate(tmplStr string, out UserOutput) (string, error) {
 	value, err := gofakeit.Template(tmplStr, &gofakeit.TemplateOptions{
 		Data: currentFaker, // Pass the Faker instance for template field access
 	})
-
 	if err != nil {
 		if out != nil {
 			out.Errorln("MockData: mock template processing failed: %w", err)

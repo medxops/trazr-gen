@@ -115,7 +115,7 @@ func run(c *Config, exporter sdkmetric.Exporter, logger *zap.Logger) error {
 	var totalMetrics int64
 
 	progressCh := make(chan struct{})
-	go func(total int) {
+	go func() {
 		count := 0
 		for range progressCh {
 			count++
@@ -126,7 +126,7 @@ func run(c *Config, exporter sdkmetric.Exporter, logger *zap.Logger) error {
 		if c.TerminalOutput {
 			fmt.Println("Metrics generated (final count):", count)
 		}
-	}(c.NumMetrics)
+	}()
 
 	for i := 0; i < c.WorkerCount; i++ {
 		wg.Add(1)

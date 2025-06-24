@@ -180,7 +180,7 @@ func run(c *Config, logger *zap.Logger) error {
 	var totalTraces int64
 
 	progressCh := make(chan struct{})
-	go func(total int) {
+	go func() {
 		count := 0
 		for range progressCh {
 			count++
@@ -191,7 +191,7 @@ func run(c *Config, logger *zap.Logger) error {
 		if c.TerminalOutput {
 			fmt.Println("Traces generated (final count):", count)
 		}
-	}(c.NumTraces)
+	}()
 
 	for i := 0; i < c.WorkerCount; i++ {
 		wg.Add(1)

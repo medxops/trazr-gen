@@ -115,7 +115,7 @@ func run(c *Config, exporter sdklog.Exporter, logger *zap.Logger) error {
 	var totalLogs int64
 
 	progressCh := make(chan struct{})
-	go func(total int) {
+	go func() {
 		count := 0
 		for range progressCh {
 			count++
@@ -126,7 +126,7 @@ func run(c *Config, exporter sdklog.Exporter, logger *zap.Logger) error {
 		if c.TerminalOutput {
 			fmt.Println("Logs generated (final count):", count)
 		}
-	}(c.NumLogs)
+	}()
 
 	for i := 0; i < c.WorkerCount; i++ {
 		wg.Add(1)
