@@ -114,10 +114,19 @@ func run(c *Config, exporter sdklog.Exporter, logger *zap.Logger) error {
 
 	var totalLogs int64
 
-	var progressCb func(string)
-	if c.TerminalOutput {
-		progressCb = func(msg string) { fmt.Println(msg) }
-	}
+	progressCh := make(chan struct{})
+	go func() {
+		count := 0
+		for range progressCh {
+			count++
+			if c.TerminalOutput {
+				fmt.Println("Logs generated:", count)
+			}
+		}
+		if c.TerminalOutput {
+			fmt.Println("Logs generated (final count):", count)
+		}
+	}()
 
 	for i := 0; i < c.WorkerCount; i++ {
 		wg.Add(1)
@@ -135,7 +144,7 @@ func run(c *Config, exporter sdklog.Exporter, logger *zap.Logger) error {
 			traceID:        c.TraceID,
 			spanID:         c.SpanID,
 			logsCounter:    &totalLogs,
-			progressCb:     progressCb,
+			progressCh:     progressCh,
 		}
 		defer func() {
 			w.logger.Info("stopping the exporter")
@@ -146,40 +155,13 @@ func run(c *Config, exporter sdklog.Exporter, logger *zap.Logger) error {
 		go w.simulateLogs(c, res, exporter)
 	}
 
-	// Progress reporting ticker (only if interval > 0)
-	var ticker *time.Ticker
-	var done chan struct{}
-	if c.ReportingInterval > 0 {
-		ticker = time.NewTicker(c.ReportingInterval)
-		defer ticker.Stop()
-		done = make(chan struct{})
-		go func() {
-			for {
-				select {
-				case <-ticker.C:
-					logger.Info("progress", zap.Int64("logs_generated", atomic.LoadInt64(&totalLogs)))
-					if c.TerminalOutput {
-						fmt.Println("Logs generated:", atomic.LoadInt64(&totalLogs))
-					}
-				case <-done:
-					return
-				}
-			}
-		}()
-	}
-
 	if c.TotalDuration > 0 {
 		time.Sleep(c.TotalDuration)
 		running.Store(false)
 	}
 	wg.Wait()
-	if done != nil {
-		close(done)
-	}
+	close(progressCh)
 	logger.Info("final count", zap.Int64("logs_generated", atomic.LoadInt64(&totalLogs)))
-	if atomic.LoadInt64(&totalLogs) > 0 && c.TerminalOutput {
-		fmt.Println("Logs generated (final count):", atomic.LoadInt64(&totalLogs))
-	}
 
 	return nil
 }

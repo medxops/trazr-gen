@@ -41,6 +41,7 @@ type worker struct {
 	spanID         string          // spanID string
 	logsCounter    *int64          // pointer to shared logs counter
 	progressCb     func(string)    // optional callback for terminal output
+	progressCh     chan struct{}   // channel for centralized progress reporting
 }
 
 // Helper to convert []attribute.KeyValue to []log.KeyValue
@@ -194,6 +195,9 @@ func (w worker) simulateLogs(cfg *Config, res *resource.Resource, exporter sdklo
 		i++
 		if w.logsCounter != nil {
 			atomic.AddInt64(w.logsCounter, 1)
+		}
+		if w.progressCh != nil {
+			w.progressCh <- struct{}{}
 		}
 		if w.numLogs != 0 && i >= int64(w.numLogs) {
 			break

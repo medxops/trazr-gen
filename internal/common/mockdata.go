@@ -49,7 +49,6 @@ func ProcessMockTemplate(tmplStr string, out UserOutput) (string, error) {
 	fakerMutex.RLock()
 	currentFaker := fakerInstance // Get the current faker instance for this operation
 	fakerMutex.RUnlock()
-
 	// Step 2: Process with gofakeit.Template, passing the Faker instance itself as Data.
 	value, err := gofakeit.Template(tmplStr, &gofakeit.TemplateOptions{
 		Data: currentFaker, // Pass the Faker instance for template field access

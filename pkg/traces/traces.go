@@ -179,10 +179,19 @@ func run(c *Config, logger *zap.Logger) error {
 
 	var totalTraces int64
 
-	var progressCb func(string)
-	if c.TerminalOutput {
-		progressCb = func(msg string) { fmt.Println(msg) }
-	}
+	progressCh := make(chan struct{})
+	go func() {
+		count := 0
+		for range progressCh {
+			count++
+			if c.TerminalOutput {
+				fmt.Println("Traces generated:", count)
+			}
+		}
+		if c.TerminalOutput {
+			fmt.Println("Traces generated (final count):", count)
+		}
+	}()
 
 	for i := 0; i < c.WorkerCount; i++ {
 		wg.Add(1)
@@ -200,32 +209,10 @@ func run(c *Config, logger *zap.Logger) error {
 			loadSize:         c.LoadSize,
 			spanDuration:     c.SpanDuration,
 			tracesCounter:    &totalTraces,
-			progressCb:       progressCb,
+			progressCh:       progressCh,
 		}
 
 		go w.simulateTraces(c)
-	}
-
-	// Progress reporting ticker (only if interval > 0)
-	var ticker *time.Ticker
-	var done chan struct{}
-	if c.ReportingInterval > 0 {
-		ticker = time.NewTicker(c.ReportingInterval)
-		defer ticker.Stop()
-		done = make(chan struct{})
-		go func() {
-			for {
-				select {
-				case <-ticker.C:
-					logger.Info("progress", zap.Int64("traces_generated", atomic.LoadInt64(&totalTraces)))
-					if atomic.LoadInt64(&totalTraces) > 0 && c.TerminalOutput {
-						fmt.Println("Traces generated:", atomic.LoadInt64(&totalTraces))
-					}
-				case <-done:
-					return
-				}
-			}
-		}()
 	}
 
 	if c.TotalDuration > 0 {
@@ -233,12 +220,7 @@ func run(c *Config, logger *zap.Logger) error {
 		running.Store(false)
 	}
 	wg.Wait()
-	if done != nil {
-		close(done)
-	}
+	close(progressCh)
 	logger.Info("final count", zap.Int64("traces_generated", atomic.LoadInt64(&totalTraces)))
-	if atomic.LoadInt64(&totalTraces) > 0 && c.TerminalOutput {
-		fmt.Println("Traces generated (final count):", atomic.LoadInt64(&totalTraces))
-	}
 	return nil
 }

@@ -114,10 +114,19 @@ func run(c *Config, exporter sdkmetric.Exporter, logger *zap.Logger) error {
 
 	var totalMetrics int64
 
-	var progressCb func(string)
-	if c.TerminalOutput {
-		progressCb = func(msg string) { fmt.Println(msg) }
-	}
+	progressCh := make(chan struct{})
+	go func() {
+		count := 0
+		for range progressCh {
+			count++
+			if c.TerminalOutput {
+				fmt.Println("Metrics generated:", count)
+			}
+		}
+		if c.TerminalOutput {
+			fmt.Println("Metrics generated (final count):", count)
+		}
+	}()
 
 	for i := 0; i < c.WorkerCount; i++ {
 		wg.Add(1)
@@ -135,7 +144,7 @@ func run(c *Config, exporter sdkmetric.Exporter, logger *zap.Logger) error {
 			index:                  i,
 			clock:                  &realClock{},
 			metricsCounter:         &totalMetrics,
-			progressCb:             progressCb,
+			progressCh:             progressCh,
 		}
 		defer func() {
 			w.logger.Info("stopping the exporter")
@@ -146,40 +155,13 @@ func run(c *Config, exporter sdkmetric.Exporter, logger *zap.Logger) error {
 		go w.simulateMetrics(res, exporter, c)
 	}
 
-	// Progress reporting ticker (only if interval > 0)
-	var ticker *time.Ticker
-	var done chan struct{}
-	if c.ReportingInterval > 0 {
-		ticker = time.NewTicker(c.ReportingInterval)
-		defer ticker.Stop()
-		done = make(chan struct{})
-		go func() {
-			for {
-				select {
-				case <-ticker.C:
-					logger.Info("progress", zap.Int64("metrics_generated", atomic.LoadInt64(&totalMetrics)))
-					if c.TerminalOutput {
-						fmt.Println("Metrics generated:", atomic.LoadInt64(&totalMetrics))
-					}
-				case <-done:
-					return
-				}
-			}
-		}()
-	}
-
 	if c.TotalDuration > 0 {
 		time.Sleep(c.TotalDuration)
 		running.Store(false)
 	}
 	wg.Wait()
-	if done != nil {
-		close(done)
-	}
+	close(progressCh)
 	logger.Info("final count", zap.Int64("metrics_generated", atomic.LoadInt64(&totalMetrics)))
-	if atomic.LoadInt64(&totalMetrics) > 0 && c.TerminalOutput {
-		fmt.Println("Metrics generated (final count):", atomic.LoadInt64(&totalMetrics))
-	}
 	return nil
 }
 
