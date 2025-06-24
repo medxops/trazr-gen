@@ -39,7 +39,10 @@ func ProcessMockMarkers(attrs map[string]any) ([]attribute.KeyValue, error) {
 					mockKeys = append(mockKeys, k)
 					continue
 				}
+				// If not a number/bool/float, treat as string
+				result = append(result, attribute.String(k, parsed))
 				mockKeys = append(mockKeys, k)
+				continue
 			}
 			result = append(result, attribute.String(k, v))
 		case bool:
@@ -48,6 +51,7 @@ func ProcessMockMarkers(attrs map[string]any) ([]attribute.KeyValue, error) {
 			result = append(result, attribute.Int(k, v))
 		}
 	}
+	fmt.Println("RESULT:", result)
 	if len(mockKeys) > 0 {
 		result = append(result, attribute.String("trazr.mock.data", strings.Join(mockKeys, ",")))
 	}

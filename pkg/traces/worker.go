@@ -33,8 +33,9 @@ type worker struct {
 	loadSize         int             // desired minimum size in MB of string data for each generated trace
 	spanDuration     time.Duration   // duration of generated spans
 	logger           *zap.Logger
-	tracesCounter    *int64       // pointer to shared traces counter
-	progressCb       func(string) // optional callback for terminal output
+	tracesCounter    *int64        // pointer to shared traces counter
+	progressCb       func(string)  // optional callback for terminal output
+	progressCh       chan struct{} // channel for centralized progress reporting
 }
 
 const (
@@ -131,6 +132,9 @@ func (w worker) simulateTraces(cfg *Config) {
 		i++
 		if w.tracesCounter != nil {
 			atomic.AddInt64(w.tracesCounter, 1)
+		}
+		if w.progressCh != nil {
+			w.progressCh <- struct{}{}
 		}
 		if w.numTraces != 0 {
 			if i >= w.numTraces {
