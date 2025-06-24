@@ -33,6 +33,7 @@ type worker struct {
 	clock                  Clock                        // clock
 	metricsCounter         *int64                       // pointer to shared metrics counter
 	progressCb             func(string)                 // optional callback for terminal output
+	progressCh             chan struct{}                // channel for centralized progress reporting
 }
 
 // We use a 15-element bounds slice for histograms below, so there must be 16 buckets here.
@@ -198,6 +199,9 @@ func (w worker) simulateMetrics(res *resource.Resource, exporter sdkmetric.Expor
 		i++
 		if w.metricsCounter != nil {
 			atomic.AddInt64(w.metricsCounter, 1)
+		}
+		if w.progressCh != nil {
+			w.progressCh <- struct{}{}
 		}
 		if w.numMetrics != 0 && i >= int64(w.numMetrics) {
 			break
