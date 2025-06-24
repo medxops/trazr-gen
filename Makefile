@@ -23,7 +23,6 @@ SRC=$(shell find . -name "*.go")
 COVERAGE_OUTPUT=coverage.out
 
 .PHONY: all build clean test coverage lint deps tidy run help integration-coverage docker-build docker-run integration-test full-coverage codeql-db codeql-analyze codeql tag-major tag-minor tag-patch _tag
-.PHONY: all build clean test coverage lint deps tidy run help integration-coverage docker-build docker-run integration-test full-coverage codeql-db codeql-analyze codeql tag-major tag-minor tag-patch _tag
 
 all: build
 
@@ -87,5 +86,48 @@ codeql-analyze: ## Run CodeQL analysis and output SARIF
 	codeql database analyze codeql-db codeql/go-queries@1.2.1 --format=sarifv2.1.0 --output=codeql-results.sarif
 
 codeql: codeql-db codeql-analyze ## Run full CodeQL scan (create DB and analyze)
+
+# Usage: make _tag PART=major|minor|patch
+_tag:
+	@set -e; \
+	latest_tag=$$(git describe --tags --abbrev=0); \
+	echo "Latest tag: $$latest_tag"; \
+	ver=$$(echo $$latest_tag | sed 's/^v//'); \
+	major=$$(echo $$ver | cut -d. -f1); \
+	minor=$$(echo $$ver | cut -d. -f2); \
+	patch=$$(echo $$ver | cut -d. -f3); \
+	if [ "$(PART)" = "major" ]; then \
+		new_major=$$(($$major + 1)); \
+		new_tag="v$${new_major}.0.0"; \
+		msg="major increment"; \
+	elif [ "$(PART)" = "minor" ]; then \
+		new_minor=$$(($$minor + 1)); \
+		new_tag="v$${major}.$${new_minor}.0"; \
+		msg="minor increment"; \
+	elif [ "$(PART)" = "patch" ]; then \
+		new_patch=$$(($$patch + 1)); \
+		new_tag="v$${major}.$${minor}.$${new_patch}"; \
+		msg="patch increment"; \
+	else \
+		echo "Unknown PART: $(PART)"; exit 1; \
+	fi; \
+	echo "New tag: $$new_tag"; \
+	read -p "Tag with '$$new_tag'? [y/N] " confirm; \
+	if [ "$$confirm" = "y" ] || [ "$$confirm" = "Y" ]; then \
+		git tag -a "$$new_tag" -m "Release $$new_tag ($$msg)"; \
+		git push origin "$$new_tag"; \
+		echo "Tagged and pushed $$new_tag"; \
+	else \
+		echo "Aborted."; \
+	fi
+
+tag-major:
+	$(MAKE) _tag PART=major
+
+tag-minor:
+	$(MAKE) _tag PART=minor
+
+tag-patch:
+	$(MAKE) _tag PART=patch
 
 .DEFAULT_GOAL := help 
