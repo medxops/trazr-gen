@@ -22,7 +22,7 @@ SRC=$(shell find . -name "*.go")
 # Test coverage output
 COVERAGE_OUTPUT=coverage.out
 
-.PHONY: all build clean test coverage lint deps tidy run help integration-coverage docker-build docker-run integration-test full-coverage codeql-db codeql-analyze codeql
+.PHONY: all build clean test coverage lint deps tidy run help integration-coverage docker-build docker-run integration-test full-coverage codeql-db codeql-analyze codeql tag-major tag-minor tag-patch
 
 all: build
 
@@ -86,5 +86,59 @@ codeql-analyze: ## Run CodeQL analysis and output SARIF
 	codeql database analyze codeql-db codeql/go-queries@1.2.1 --format=sarifv2.1.0 --output=codeql-results.sarif
 
 codeql: codeql-db codeql-analyze ## Run full CodeQL scan (create DB and analyze)
+
+tag-major:
+	@set -e; \
+	latest_tag=$$(git describe --tags --abbrev=0); \
+	echo "Latest tag: $$latest_tag"; \
+	ver=$$(echo $$latest_tag | sed 's/^v//'); \
+	major=$$(echo $$ver | cut -d. -f1); \
+	new_major=$$(($$major + 1)); \
+	new_tag="v$${new_major}.0.0"; \
+	echo "New major tag: $$new_tag"; \
+	read -p "Tag with '$$new_tag'? [y/N] " confirm; \
+	if [ "$$confirm" = "y" ] || [ "$$confirm" = "Y" ]; then \
+		git tag -a "$$new_tag" -m "Release $$new_tag (major increment)"; \
+		echo "Tagged $$new_tag"; \
+	else \
+		echo "Aborted."; \
+	fi
+
+tag-minor:
+	@set -e; \
+	latest_tag=$$(git describe --tags --abbrev=0); \
+	echo "Latest tag: $$latest_tag"; \
+	ver=$$(echo $$latest_tag | sed 's/^v//'); \
+	major=$$(echo $$ver | cut -d. -f1); \
+	minor=$$(echo $$ver | cut -d. -f2); \
+	new_minor=$$(($$minor + 1)); \
+	new_tag="v$${major}.$${new_minor}.0"; \
+	echo "New minor tag: $$new_tag"; \
+	read -p "Tag with '$$new_tag'? [y/N] " confirm; \
+	if [ "$$confirm" = "y" ] || [ "$$confirm" = "Y" ]; then \
+		git tag -a "$$new_tag" -m "Release $$new_tag (minor increment)"; \
+		echo "Tagged $$new_tag"; \
+	else \
+		echo "Aborted."; \
+	fi
+
+tag-patch:
+	@set -e; \
+	latest_tag=$$(git describe --tags --abbrev=0); \
+	echo "Latest tag: $$latest_tag"; \
+	ver=$$(echo $$latest_tag | sed 's/^v//'); \
+	major=$$(echo $$ver | cut -d. -f1); \
+	minor=$$(echo $$ver | cut -d. -f2); \
+	patch=$$(echo $$ver | cut -d. -f3); \
+	new_patch=$$(($$patch + 1)); \
+	new_tag="v$${major}.$${minor}.$${new_patch}"; \
+	echo "New patch tag: $$new_tag"; \
+	read -p "Tag with '$$new_tag'? [y/N] " confirm; \
+	if [ "$$confirm" = "y" ] || [ "$$confirm" = "Y" ]; then \
+		git tag -a "$$new_tag" -m "Release $$new_tag (patch increment)"; \
+		echo "Tagged $$new_tag"; \
+	else \
+		echo "Aborted."; \
+	fi
 
 .DEFAULT_GOAL := help 
