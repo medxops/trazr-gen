@@ -220,3 +220,5 @@ testdata/*
 private.key
 private.key.b64
 private.key.oneline
+codereview.md
+go.sum

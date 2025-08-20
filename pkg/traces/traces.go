@@ -7,12 +7,16 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"os"
+	"os/signal"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
@@ -22,6 +26,9 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.25.0"
 	"go.uber.org/zap"
 	"golang.org/x/time/rate"
+
+	"github.com/medxops/trazr-gen/pkg/logs"
+	"github.com/medxops/trazr-gen/pkg/metrics"
 )
 
 const tracesHelpTemplate = `
@@ -66,52 +73,61 @@ func Start(cfg *Config, logger *zap.Logger) error {
 	}
 
 	var exp *otlptrace.Exporter
-	if cfg.UseHTTP {
-		var exporterOpts []otlptracehttp.Option
+	// Root context canceled on SIGINT/SIGTERM
+	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	// Exporter creation bounded by timeout and signal-aware
+	ctx, cancel := context.WithTimeout(rootCtx, 1*time.Minute)
+	defer cancel()
 
-		logger.Info("starting HTTP exporter")
-		exporterOpts, err := httpExporterOptions(cfg)
-		if err != nil {
-			logger.Error("failed to process OTLP HTTP", zap.Error(err))
-			return err
+	deadline := time.Now().Add(1 * time.Minute)
+	backoffDelay := 500 * time.Millisecond
+	maxDelay := 10 * time.Second
+	for {
+		var err error
+		if cfg.UseHTTP {
+			var exporterOpts []otlptracehttp.Option
+			logger.Info("starting HTTP exporter")
+			exporterOpts, err = httpExporterOptions(cfg)
+			if err == nil {
+				exp, err = otlptracehttp.New(context.Background(), exporterOpts...)
+			}
+		} else {
+			var exporterOpts []otlptracegrpc.Option
+			logger.Info("starting gRPC exporter")
+			exporterOpts, err = grpcExporterOptions(cfg)
+			if err == nil {
+				exp, err = otlptracegrpc.New(context.Background(), exporterOpts...)
+			}
 		}
-		exp, err = otlptracehttp.New(context.Background(), exporterOpts...)
-		if err != nil {
-			logger.Error("failed to obtain OTLP HTTP exporter", zap.Error(err))
-			return err
+		if err == nil {
+			break
 		}
-	} else {
-		var exporterOpts []otlptracegrpc.Option
 
-		logger.Info("starting gRPC exporter")
-		exporterOpts, err := grpcExporterOptions(cfg)
-		if err != nil {
-			logger.Error("failed to process OTLP gRPC", zap.Error(err))
+		if time.Now().After(deadline) || ctx.Err() != nil {
+			logger.Error("giving up creating trace exporter", zap.Error(err))
 			return err
 		}
-		exp, err = otlptracegrpc.New(context.Background(), exporterOpts...)
-		if err != nil {
-			logger.Error("failed to obtain OTLP gRPC exporter", zap.Error(err))
-			return err
+		logger.Warn("failed to create trace exporter, will retry", zap.Error(err), zap.Duration("next_backoff", backoffDelay))
+		select {
+		case <-time.After(backoffDelay):
+			// increase delay with cap
+			backoffDelay *= 2
+			if backoffDelay > maxDelay {
+				backoffDelay = maxDelay
+			}
+		case <-ctx.Done():
+			logger.Error("canceled while creating trace exporter", zap.Error(ctx.Err()))
+			return ctx.Err()
 		}
 	}
-	defer func() {
-		logger.Info("stopping the exporter")
-		if tempError := exp.Shutdown(context.Background()); tempError != nil {
-			logger.Error("failed to stop the exporter", zap.Error(tempError))
-		}
-	}()
 
 	var ssp sdktrace.SpanProcessor
 	if cfg.Batch {
 		ssp = sdktrace.NewBatchSpanProcessor(exp, sdktrace.WithBatchTimeout(time.Second))
-		defer func() {
-			logger.Info("stop the batch span processor")
-
-			if tempError := ssp.Shutdown(context.Background()); tempError != nil {
-				logger.Error("failed to stop the batch span processor", zap.Error(tempError))
-			}
-		}()
+	} else {
+		// For non-batch mode, use SimpleSpanProcessor to ensure immediate export
+		ssp = sdktrace.NewSimpleSpanProcessor(exp)
 	}
 
 	attrs, err := cfg.GetResourceAttrWithMockMarker()
@@ -119,30 +135,52 @@ func Start(cfg *Config, logger *zap.Logger) error {
 		logger.Error("failed to process resource attributes", zap.Error(err))
 		return err
 	}
+
+	// Add trazr.run.flags attribute when trace-bound feature is enabled
+	if cfg.TrazrTraceBound {
+		attrs = append(attrs, attribute.String("trazr.run.flags", "tracebound"))
+	}
+
 	tracerProvider := sdktrace.NewTracerProvider(
 		sdktrace.WithResource(resource.NewWithAttributes(semconv.SchemaURL, attrs...)),
 	)
 
-	if cfg.Batch {
-		tracerProvider.RegisterSpanProcessor(ssp)
-	}
+	// Always register the span processor to ensure traces are exported
+	tracerProvider.RegisterSpanProcessor(ssp)
 
 	otel.SetTracerProvider(tracerProvider)
+
+	// Centralized, ordered shutdown: provider first (flush processors), then exporter
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		logger.Info("shutting down tracer provider")
+		if tempError := tracerProvider.Shutdown(shutdownCtx); tempError != nil {
+			logger.Error("failed to shutdown tracer provider", zap.Error(tempError))
+		}
+		logger.Info("stopping the exporter")
+		if tempError := exp.Shutdown(shutdownCtx); tempError != nil {
+			logger.Error("failed to stop the exporter", zap.Error(tempError))
+		}
+	}()
 
 	if cfg.TerminalOutput {
 		fmt.Println("Starting traces generator")
 	}
 	logger.Info("starting the traces generator with configuration", zap.Any("config", cfg))
 
-	if err := run(cfg, logger); err != nil {
+	if err := run(rootCtx, cfg, logger); err != nil {
 		logger.Error("failed to run the traces generator", zap.Error(err))
 		return err
 	}
+
+	logger.Info("traces generation completed, returning from Start function")
+	logger.Info("about to return from Start function, defer functions should be called")
 	return nil
 }
 
 // run executes the test scenario.
-func run(c *Config, logger *zap.Logger) error {
+func run(ctx context.Context, c *Config, logger *zap.Logger) error {
 	if err := c.Validate(); err != nil {
 		return err
 	}
@@ -159,6 +197,125 @@ func run(c *Config, logger *zap.Logger) error {
 		logger.Info("generation of traces is limited", zap.Float64("per-second", float64(limit)))
 	}
 
+	// Check if we should use enhanced trace generation
+	useEnhanced := c.Enhanced
+
+	if useEnhanced {
+		logger.Info("using enhanced trace generation with new parameters")
+		return runEnhanced(ctx, c, logger, limit)
+	}
+
+	// Use existing worker for backward compatibility
+	return runLegacy(ctx, c, logger, limit)
+}
+
+// runEnhanced uses the new enhanced worker with realistic trace generation
+func runEnhanced(ctx context.Context, c *Config, logger *zap.Logger, limit rate.Limit) error {
+	wg := sync.WaitGroup{}
+	running := &atomic.Bool{}
+	running.Store(true)
+	// Stop promptly on Ctrl-C
+	go func() {
+		<-ctx.Done()
+		running.Store(false)
+		logger.Info("received interrupt signal, stopping all workers")
+	}()
+	totalTraces := &atomic.Int64{}
+
+	progressCh := make(chan struct{})
+	go func() {
+		count := 0
+		for range progressCh {
+			count++
+			if c.TerminalOutput && c.ShowProgressCounter {
+				fmt.Println("Enhanced traces generated:", count)
+			}
+		}
+		if c.TerminalOutput && c.ShowProgressCounter {
+			fmt.Println("Enhanced traces generated (final count):", count)
+		}
+	}()
+
+	// Create log and metric configs for integration
+	logConfig := &logs.Config{}
+	logConfig.SetDefaults()
+	metricConfig := &metrics.Config{}
+	metricConfig.SetDefaults()
+
+	// Store enhanced workers to access their statistics later
+	enhancedWorkers := make([]*EnhancedWorker, 0, c.WorkerCount)
+
+	for i := 0; i < c.WorkerCount; i++ {
+		wg.Add(1)
+		var progressCb func(string)
+		if c.TerminalOutput {
+			progressCb = func(msg string) { fmt.Println(msg) }
+		}
+
+		enhancedWorker := NewEnhancedWorker(
+			c,
+			logConfig,
+			metricConfig,
+			logger.With(zap.Int("worker", i+1)),
+			c.NumTraces,
+			c.TotalDuration,
+			limit,
+			running,
+			&wg,
+			totalTraces,
+			progressCh,
+			progressCb,
+		)
+		enhancedWorkers = append(enhancedWorkers, enhancedWorker)
+
+		// Start enhanced worker in a goroutine
+		go func() {
+			if err := enhancedWorker.Start(context.Background()); err != nil {
+				logger.Error("enhanced worker failed", zap.Error(err))
+			}
+		}()
+	}
+
+	if c.TotalDuration > 0 {
+		time.Sleep(c.TotalDuration)
+		running.Store(false)
+	}
+	wg.Wait()
+	close(progressCh)
+
+	// Get final statistics from the enhanced worker
+	if len(enhancedWorkers) > 0 {
+		stats := enhancedWorkers[0].GetStatistics()
+		if c.TerminalOutput {
+			fmt.Printf("Enhanced traces generated (final count): %d\n", totalTraces.Load())
+			fmt.Printf("Logs generated: %d\n", stats["logs"])
+			// Show logs by severity
+			for severity, count := range stats {
+				if strings.HasPrefix(severity, "logs_") && count > 0 {
+					severityName := strings.TrimPrefix(severity, "logs_")
+					fmt.Printf("  - %s logs: %d\n", severityName, count)
+				}
+			}
+			fmt.Printf("Metrics generated: %d\n", stats["metrics"])
+			// Show metrics by type
+			for metricType, count := range stats {
+				if strings.HasPrefix(metricType, "metrics_") && count > 0 {
+					typeName := strings.TrimPrefix(metricType, "metrics_")
+					fmt.Printf("  - %s metrics: %d\n", typeName, count)
+				}
+			}
+			fmt.Printf("Events generated: %d\n", stats["events"])
+		}
+		logger.Info("final enhanced count", zap.Int64("traces_generated", totalTraces.Load()))
+		logger.Info("final statistics", zap.Any("stats", stats))
+	}
+
+	logger.Info("runEnhanced function completed, returning")
+	return nil
+}
+
+// runLegacy uses the existing worker for backward compatibility
+func runLegacy(ctx context.Context, c *Config, logger *zap.Logger, limit rate.Limit) error {
 	var statusCode codes.Code
 
 	switch strings.ToLower(c.StatusCode) {
@@ -173,10 +330,14 @@ func run(c *Config, logger *zap.Logger) error {
 	}
 
 	wg := sync.WaitGroup{}
-
 	running := &atomic.Bool{}
 	running.Store(true)
-
+	// Stop promptly on Ctrl-C
+	go func() {
+		<-ctx.Done()
+		running.Store(false)
+		logger.Info("received interrupt signal, stopping all workers")
+	}()
 	var totalTraces int64
 
 	progressCh := make(chan struct{})
@@ -184,18 +345,21 @@ func run(c *Config, logger *zap.Logger) error {
 		count := 0
 		for range progressCh {
 			count++
-			if c.TerminalOutput {
+			if c.TerminalOutput && c.ShowProgressCounter {
 				fmt.Println("Traces generated:", count)
 			}
 		}
-		if c.TerminalOutput {
+		if c.TerminalOutput && c.ShowProgressCounter {
 			fmt.Println("Traces generated (final count):", count)
 		}
 	}()
 
 	for i := 0; i < c.WorkerCount; i++ {
 		wg.Add(1)
-
+		var progressCb func(string)
+		if c.TerminalOutput {
+			progressCb = func(msg string) { fmt.Println(msg) }
+		}
 		w := worker{
 			numTraces:        c.NumTraces,
 			numChildSpans:    int(math.Max(1, float64(c.NumChildSpans))),
@@ -210,16 +374,19 @@ func run(c *Config, logger *zap.Logger) error {
 			spanDuration:     c.SpanDuration,
 			tracesCounter:    &totalTraces,
 			progressCh:       progressCh,
+			progressCb:       progressCb,
 		}
-
-		go w.simulateTraces(c)
+		go w.simulateTraces(ctx, c)
 	}
 
 	if c.TotalDuration > 0 {
 		time.Sleep(c.TotalDuration)
 		running.Store(false)
 	}
+
+	logger.Info("waiting for workers to complete")
 	wg.Wait()
+	logger.Info("all workers completed")
 	close(progressCh)
 	logger.Info("final count", zap.Int64("traces_generated", atomic.LoadInt64(&totalTraces)))
 	return nil

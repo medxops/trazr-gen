@@ -2,7 +2,7 @@
 // Copyright (c) 2018 The Jaeger Authors.
 // SPDX-License-Identifier: Apache-2.0
 
-package main // import "github.com/open-telemetry/opentelemetry-collector-contrib/trazr-gen/internal/trazr-gen"
+package main
 
 import (
 	"fmt"
@@ -87,6 +87,9 @@ var tracesCmd = &cobra.Command{
 	Short:   "Simulates a client generating traces. (Stability level: alpha)",
 	Example: "trazr-gen traces",
 	RunE: func(_ *cobra.Command, _ []string) error {
+		// Initialize global seed for reproducible generation
+		common.InitGlobalSeed(tracesCfg.MockSeed)
+
 		logger, err := common.CreateLogger(tracesCfg.LogLevel, tracesCfg.TerminalOutput)
 		if err != nil {
 			return err
@@ -101,6 +104,9 @@ var metricsCmd = &cobra.Command{
 	Short:   "Simulates a client generating metrics. (Stability level: development)",
 	Example: "trazr-gen metrics",
 	RunE: func(_ *cobra.Command, _ []string) error {
+		// Initialize global seed for reproducible generation
+		common.InitGlobalSeed(metricsCfg.MockSeed)
+
 		logger, err := common.CreateLogger(metricsCfg.LogLevel, metricsCfg.TerminalOutput)
 		if err != nil {
 			return err
@@ -115,6 +121,9 @@ var logsCmd = &cobra.Command{
 	Short:   "Simulates a client generating metrics. (Stability level: development)",
 	Example: "trazr-gen logs",
 	RunE: func(_ *cobra.Command, _ []string) error {
+		// Initialize global seed for reproducible generation
+		common.InitGlobalSeed(logsCfg.MockSeed)
+
 		logger, err := common.CreateLogger(logsCfg.LogLevel, logsCfg.TerminalOutput)
 		if err != nil {
 			return err
@@ -167,19 +176,16 @@ func init() {
 	}
 
 	// Ensure config is loaded after flags are parsed
-	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
+	rootCmd.PersistentPreRunE = func(_ *cobra.Command, _ []string) error {
 		initConfig()
 
-		if logsCfg.TerminalOutput {
-			switch cmd.Name() {
-			case "traces":
-				common.ShowNonDefaultConfig(tracesCfg)
-			case "metrics":
-				common.ShowNonDefaultConfig(metricsCfg)
-			case "logs":
-				common.ShowNonDefaultConfig(logsCfg)
-			}
+		// Ensure global log-level flag applies to all subcommand configs even without a config file
+		if lvl := viper.GetString("log-level"); lvl != "" {
+			tracesCfg.LogLevel = lvl
+			metricsCfg.LogLevel = lvl
+			logsCfg.LogLevel = lvl
 		}
+
 		return nil
 	}
 

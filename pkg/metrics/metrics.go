@@ -7,8 +7,11 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"os"
+	"os/signal"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
@@ -16,7 +19,7 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/resource"
-	semconv "go.opentelemetry.io/otel/semconv/v1.13.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.25.0"
 	"go.uber.org/zap"
 	"golang.org/x/time/rate"
 )
@@ -64,18 +67,56 @@ func Start(cfg *Config, logger *zap.Logger) error {
 	}
 
 	expF := exporterFactory(cfg, logger)
-	exp, err := expF()
-	if err != nil {
-		logger.Error("failed to create exporter", zap.Error(err))
-		return err
+	var exp sdkmetric.Exporter
+	// Root context canceled on SIGINT/SIGTERM
+	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	// Exporter creation bounded by timeout and signal-aware
+	ctx, cancel := context.WithTimeout(rootCtx, 1*time.Minute)
+	defer cancel()
+
+	deadline := time.Now().Add(1 * time.Minute)
+	backoffDelay := 500 * time.Millisecond
+	maxDelay := 10 * time.Second
+	for {
+		var err error
+		exp, err = expF()
+		if err == nil {
+			break
+		}
+		if time.Now().After(deadline) || ctx.Err() != nil {
+			logger.Error("giving up creating metrics exporter", zap.Error(err))
+			return err
+		}
+		logger.Warn("failed to create metrics exporter, will retry", zap.Error(err), zap.Duration("next_backoff", backoffDelay))
+		select {
+		case <-time.After(backoffDelay):
+			backoffDelay *= 2
+			if backoffDelay > maxDelay {
+				backoffDelay = maxDelay
+			}
+		case <-ctx.Done():
+			logger.Error("canceled while creating metrics exporter", zap.Error(ctx.Err()))
+			return ctx.Err()
+		}
 	}
+
+	// Ensure exporter is shut down once after generation completes
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		logger.Info("stopping the exporter")
+		if tempError := exp.Shutdown(shutdownCtx); tempError != nil {
+			logger.Error("failed to stop the exporter", zap.Error(tempError))
+		}
+	}()
 
 	logger.Info("starting the metrics generator with configuration", zap.Any("config", cfg))
 	if cfg.TerminalOutput {
 		fmt.Println("Starting metrics generator")
 	}
 
-	if err = run(cfg, exp, logger); err != nil {
+	if err := run(rootCtx, cfg, exp, logger); err != nil {
 		logger.Error("failed to run metrics generator", zap.Error(err))
 		return err
 	}
@@ -83,7 +124,7 @@ func Start(cfg *Config, logger *zap.Logger) error {
 }
 
 // run executes the test scenario.
-func run(c *Config, exporter sdkmetric.Exporter, logger *zap.Logger) error {
+func run(ctx context.Context, c *Config, exporter sdkmetric.Exporter, logger *zap.Logger) error {
 	if err := c.Validate(); err != nil {
 		return err
 	}
@@ -111,6 +152,12 @@ func run(c *Config, exporter sdkmetric.Exporter, logger *zap.Logger) error {
 
 	running := &atomic.Bool{}
 	running.Store(true)
+	// Stop promptly on Ctrl-C
+	go func() {
+		<-ctx.Done()
+		running.Store(false)
+		logger.Info("received interrupt signal, stopping all workers")
+	}()
 
 	var totalMetrics int64
 
@@ -119,17 +166,21 @@ func run(c *Config, exporter sdkmetric.Exporter, logger *zap.Logger) error {
 		count := 0
 		for range progressCh {
 			count++
-			if c.TerminalOutput {
+			if c.TerminalOutput && c.ShowProgressCounter {
 				fmt.Println("Metrics generated:", count)
 			}
 		}
-		if c.TerminalOutput {
+		if c.TerminalOutput && c.ShowProgressCounter {
 			fmt.Println("Metrics generated (final count):", count)
 		}
 	}()
 
 	for i := 0; i < c.WorkerCount; i++ {
 		wg.Add(1)
+		var progressCb func(string)
+		if c.TerminalOutput {
+			progressCb = func(msg string) { fmt.Println(msg) }
+		}
 		w := worker{
 			numMetrics:             c.NumMetrics,
 			metricName:             c.MetricName,
@@ -145,14 +196,9 @@ func run(c *Config, exporter sdkmetric.Exporter, logger *zap.Logger) error {
 			clock:                  &realClock{},
 			metricsCounter:         &totalMetrics,
 			progressCh:             progressCh,
+			progressCb:             progressCb,
 		}
-		defer func() {
-			w.logger.Info("stopping the exporter")
-			if tempError := exporter.Shutdown(context.Background()); tempError != nil {
-				w.logger.Error("failed to stop the exporter", zap.Error(tempError))
-			}
-		}()
-		go w.simulateMetrics(res, exporter, c)
+		go w.simulateMetrics(ctx, res, exporter, c)
 	}
 
 	if c.TotalDuration > 0 {

@@ -13,6 +13,7 @@ rate: 1                               # How many metrics/spans/logs per second e
 duration: 0                           # For how long to run the test (e.g., 5s, 1m). 0 = run forever (default: 0)
 interval: 1s                          # Reporting interval (default: 1s)
 mock-data: true                       # Use mock data templates (default: false)
+mock-seed: 0                          # Random seed for reproducible generation (0 = use current time, any other value = fixed seed) (default: 0)
 log-level: info                       # Log level: debug, info, warn, error (default: info)
 terminal-output: true                 # Enable or disable terminal (human) output. Set to false to suppress log json output (default: true)
 
@@ -27,22 +28,75 @@ mtls: false                           # Require client authentication for mTLS (
 client-cert: ""                       # Client certificate file for mTLS (default: "")
 client-key: ""                        # Client private key file for mTLS (default: "")
 
-# Custom headers and attributes (repeatable as map)
+# Custom headers for OTLP exporter
 otlp-header: {}                      # e.g. {"key1": "value1", "key2": "value2"}, mock-data supports (default: {})
-otlp-attributes: 
-  host.ip: '{{IPv4Address}}'
-telemetry-attributes: 
-  patient.name: '{{Name}}'
-  patient.mrn: 'MRN{{Number 100000 999999}}'
-  patient.ssn: '{{SSN}}'
-  patient.dob: '{{DateRange (ToDate "1924-01-01") (ToDate "2024-12-31")}}'
-  error.code: '{{ErrorHTTPClient}}'
+
+# =============================================================================
+# RESOURCE ATTRIBUTES (Global metadata for all telemetry from this service)
+# =============================================================================
+# Resource attributes describe the entity emitting telemetry (e.g., service, host, deployment)
+# These are GLOBAL and apply to ALL telemetry (traces, metrics, logs) from this service
+# Examples: service.name, service.namespace, host.name, deployment.environment
+resource-attributes:
+  # Service identification
+  service.name: "trazr-gen"          # Service name (default: "trazr-gen")
+  # Service namespace - system/organization/product that owns the service (default: random)
+  service.namespace: |
+    {{RandomString (SliceString "PaymentSystem" "AuthSystem" "AnalyticsSystem" "NotificationSystem")}}
+  # Service version (default: random)
+  service.version: |
+    {{RandomString (SliceString "1.0.0" "1.1.0" "2.0.0" "3.0.0")}}
+  service.instance.id: "{{UUID}}"    # Service instance ID (default: random UUID)
+  
+  # Host information
+  host.name: "{{DomainName}}"          # Host name (default: random)
+  host.ip: "{{IPv4Address}}"         # Host IP address (default: random)
+  
+  # Deployment information
+  # Deployment environment (default: random)
+  deployment.environment: |
+    {{RandomString (SliceString "prod" "stage" "dev" "test")}}
+  # Deployment region (default: random)
+  deployment.region: |
+    {{RandomString (SliceString "us-east-1" "us-west-2" "eu-west-1" "ap-southeast-1")}}
+
+# =============================================================================
+# SCOPE/TELEMETRY ATTRIBUTES (Per-telemetry metadata)
+# =============================================================================
+# These attributes are added to individual telemetry records (spans, metrics, logs)
+# They describe the specific operation/event, not the service itself
+# Examples: user.id, request.id, operation.type, error.details
+telemetry-attributes:
+  # Patient information (example for healthcare scenario)
+  patient.name: "{{Name}}"
+  patient.mrn: "MRN{{Number 100000 999999}}"
+  patient.ssn: "{{SSN}}"
+  patient.dob: "{{Date}}"
+  
+  # Encounter information
   encounter.procedure: "{{LoremIpsumSentence 10}}"
-  encounter.type: '{{RandomString (SliceString "inpatient" "outpatient" "emergency")}}'
-  credit.card.number: '{{CreditCard}}'
+  # Encounter type (default: random)
+  encounter.type: |
+    {{RandomString (SliceString "inpatient" "outpatient" "emergency")}}
+  
+  # Error and status information
+  error.code: "{{ErrorHTTPClient}}"
+  error.message: "{{ErrorDatabase}}"
+  
+  # Payment information
+  credit.card.number: "{{CreditCard}}"
+  
+  # Request context
+  request.id: "{{UUID}}"
+  user.id: "{{Number 1000 9999}}"
+  session.id: "{{UUID}}"
 
-sensitive-data: [patient.ssn, patient.dob, patient.mrn, host.ip,credit.card.number]                  # Sensitive attribute/header keys (list) (default: [])
+# Sensitive data markers (keys that contain sensitive information)
+sensitive-data: [patient.ssn, patient.dob, patient.mrn, host.ip, credit.card.number]  # Sensitive attribute/header keys (list) (default: [])
 
+# =============================================================================
+# SUBCOMMAND-SPECIFIC CONFIGURATIONS
+# =============================================================================
 
 # --- Traces subcommand options ---
 traces:
@@ -54,6 +108,27 @@ traces:
   batch: true                         # Batch traces before sending (default: true)
   size: 0                             # Minimum size in MB of string data per trace (default: 0)
   span-duration: 123us                # Duration of each generated span (default: 123us)
+  
+  # Trazr trace-bound feature: Adds trace-bound marker to resource attributes
+  trazr-trace-bound: true              # Enable trazr trace bound for trace generation (default: false)
+                                      # When enabled: adds 'trazr.run.flags: tracebound' to resource attributes
+                                      # Works for both regular and enhanced trace generation
+  
+  # Enhanced trace generation parameters (new features)
+  enhanced: false                           # Enable enhanced trace generation with realistic patterns, events, attributes, logs, and metrics (default: false)
+  spans-per-trace: 5                        # Number of spans per trace (overrides child-spans for new generation) (default: 5)
+  max-depth: 3                              # Maximum nesting depth for spans (default: 3)
+  pattern: "random"                         # Trace structure pattern: simple, chain, fan-out, complex, random (default: "random")
+  error-rate: 0.05                          # Probability of span failure (0.0 to 1.0) (default: 0.05)
+  concurrency: 3                            # Maximum parallel child spans (default: 3)
+  events-per-span: 3                        # Number of events per span (default: 3)
+  attributes-per-span: 10                   # Number of attributes per span (default: 10)
+  services:                                 # Service names to use in trace generation (default: ["api-gateway", "user-service", "payment-service", "database-service", "cache-service"])
+    - "api-gateway"
+    - "user-service"
+    - "payment-service"
+    - "database-service"
+    - "cache-service"
 
 # --- Metrics subcommand options ---
 metrics:
@@ -67,9 +142,13 @@ metrics:
 # --- Logs subcommand options ---
 logs:
   otlp-http-url-path: "/v1/logs"      # URL path for HTTP OTLP exporter (default: "/v1/logs")
-  logs: 1                             # Number of logs to generate per worker (ignored if duration is set) (default: 1)
-  body:                               # Body of the log,  Mock-data supports (default: "Log message")
-    "{{ErrorDatabase}} - Patient Not Found: MRN{{Number 100000 999999}}"
+  logs: 25                             # Number of logs to generate per worker (ignored if duration is set) (default: 1)
+  body: |                             # Body of the log, Mock-data supports (default: "Log message")
+    {{ErrorDatabase}} - Patient Not Found: MRN{{Number 100000 999999}}
   severity-number: "{{Number 1 24}}"  # Severity number (1-24) or random "{{IntRange 1 24}}" (default: "9")
   trace-id: ""                        # TraceID of the log (default: "")
   span-id: ""                         # SpanID of the log (default: "") 
+  
+  # Trazr time-bound feature: Adds start/stop markers to first/last logs in a sequence
+  trazr-time-bound: true              # Enable trazr time bound for log generation (default: false)
+                                      # When enabled: first log gets 'trazr.run.start' attribute, last log gets 'trazr.run.stop' attribute

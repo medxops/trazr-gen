@@ -421,7 +421,7 @@ func TestConfigHelpers(t *testing.T) {
 	assert.False(t, cfg.PropagateContext)
 	assert.True(t, cfg.Batch)
 	assert.Equal(t, 0, cfg.LoadSize)
-	assert.Equal(t, 123*time.Microsecond, cfg.SpanDuration)
+	assert.Equal(t, 100*time.Millisecond, cfg.SpanDuration)
 
 	// Test Flags registers flags (smoke test)
 	fs := newFlagSet()

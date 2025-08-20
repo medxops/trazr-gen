@@ -5,6 +5,7 @@ package metrics
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -92,13 +93,13 @@ func (w worker) reportProgressf(format string, args ...any) {
 	}
 }
 
-func (w worker) simulateMetrics(res *resource.Resource, exporter sdkmetric.Exporter, cfg *Config) {
+func (w worker) simulateMetrics(ctx context.Context, res *resource.Resource, exporter sdkmetric.Exporter, cfg *Config) {
 	limiter := rate.NewLimiter(w.limitPerSecond, 1)
 
 	startTime := w.clock.Now()
 
 	var i int64
-	for w.running.Load() {
+	for w.running.Load() && ctx.Err() == nil {
 		var metrics []metricdata.Metrics
 		now := w.clock.Now()
 		if w.aggregationTemporality.AsTemporality() == metricdata.DeltaTemporality {
@@ -110,7 +111,6 @@ func (w worker) simulateMetrics(res *resource.Resource, exporter sdkmetric.Expor
 		if err != nil {
 			w.reportProgressf("Failed to process telemetry attributes: %v", err)
 			w.logger.Fatal("failed to process telemetry attributes", zap.Error(err))
-			break
 		}
 
 		switch w.metricType {
@@ -186,14 +186,120 @@ func (w worker) simulateMetrics(res *resource.Resource, exporter sdkmetric.Expor
 			ScopeMetrics: []metricdata.ScopeMetrics{{Metrics: metrics}},
 		}
 
-		if err := limiter.Wait(context.Background()); err != nil {
+		if err := limiter.Wait(ctx); err != nil {
+			if ctx.Err() != nil {
+				w.logger.Info("context cancelled during rate limiting, stopping")
+				break
+			}
 			w.reportProgressf("Limiter wait failed: %v", err)
 			w.logger.Fatal("limiter wait failed, retry", zap.Error(err))
 		}
 
-		if err := exporter.Export(context.Background(), &rm); err != nil {
-			w.reportProgressf("Exporter failed: %v", err)
-			w.logger.Fatal("exporter failed", zap.Error(err))
+		if err := exporter.Export(ctx, &rm); err != nil {
+			if ctx.Err() != nil {
+				w.logger.Info("context cancelled during export, stopping")
+				break
+			}
+			w.reportProgressf("Exporter failed, will retry in 5s: %v", err)
+			w.logger.Warn("exporter failed, will retry in 5s", zap.Error(err))
+			// Use context-aware sleep
+			select {
+			case <-time.After(5 * time.Second):
+			case <-ctx.Done():
+				w.logger.Info("context cancelled during retry sleep, stopping")
+				break
+			}
+			continue
+		}
+
+		if cfg.TerminalOutput && cfg.PrintDetails {
+			for _, m := range metrics {
+				fmt.Println("Generated Metric Record:")
+				fmt.Printf("  Name: %s\n", m.Name)
+				switch data := m.Data.(type) {
+				case metricdata.Gauge[int64]:
+					for _, dp := range data.DataPoints {
+						fmt.Printf("  Type: Gauge\n")
+						fmt.Printf("  Value: %v\n", dp.Value)
+						fmt.Printf("  Time: %s\n", dp.Time.Format(time.RFC3339Nano))
+						fmt.Println("  Attributes:")
+						for i := 0; i < dp.Attributes.Len(); i++ {
+							kv := dp.Attributes.ToSlice()[i]
+							fmt.Printf("    - %s: %v\n", kv.Key, kv.Value.AsInterface())
+						}
+						if len(dp.Exemplars) > 0 {
+							ex := dp.Exemplars[0]
+							traceID := "-"
+							if len(ex.TraceID) == 16 {
+								traceID = hex.EncodeToString(ex.TraceID)
+							}
+							spanID := "-"
+							if len(ex.SpanID) == 8 {
+								spanID = hex.EncodeToString(ex.SpanID)
+							}
+							fmt.Printf("  TraceID: %s\n", traceID)
+							fmt.Printf("  SpanID: %s\n", spanID)
+						}
+					}
+				case metricdata.Sum[int64]:
+					for _, dp := range data.DataPoints {
+						fmt.Printf("  Type: Sum\n")
+						fmt.Printf("  Value: %v\n", dp.Value)
+						fmt.Printf("  StartTime: %s\n", dp.StartTime.Format(time.RFC3339Nano))
+						fmt.Printf("  Time: %s\n", dp.Time.Format(time.RFC3339Nano))
+						fmt.Println("  Attributes:")
+						for i := 0; i < dp.Attributes.Len(); i++ {
+							kv := dp.Attributes.ToSlice()[i]
+							fmt.Printf("    - %s: %v\n", kv.Key, kv.Value.AsInterface())
+						}
+						if len(dp.Exemplars) > 0 {
+							ex := dp.Exemplars[0]
+							traceID := "-"
+							if len(ex.TraceID) == 16 {
+								traceID = hex.EncodeToString(ex.TraceID)
+							}
+							spanID := "-"
+							if len(ex.SpanID) == 8 {
+								spanID = hex.EncodeToString(ex.SpanID)
+							}
+							fmt.Printf("  TraceID: %s\n", traceID)
+							fmt.Printf("  SpanID: %s\n", spanID)
+						}
+					}
+				case metricdata.Histogram[int64]:
+					for _, dp := range data.DataPoints {
+						fmt.Printf("  Type: Histogram\n")
+						fmt.Printf("  Count: %v\n", dp.Count)
+						fmt.Printf("  Sum: %v\n", dp.Sum)
+						fmt.Printf("  StartTime: %s\n", dp.StartTime.Format(time.RFC3339Nano))
+						fmt.Printf("  Time: %s\n", dp.Time.Format(time.RFC3339Nano))
+						fmt.Println("  Attributes:")
+						for i := 0; i < dp.Attributes.Len(); i++ {
+							kv := dp.Attributes.ToSlice()[i]
+							fmt.Printf("    - %s: %v\n", kv.Key, kv.Value.AsInterface())
+						}
+						if len(dp.Exemplars) > 0 {
+							ex := dp.Exemplars[0]
+							traceID := "-"
+							if len(ex.TraceID) == 16 {
+								traceID = hex.EncodeToString(ex.TraceID)
+							}
+							spanID := "-"
+							if len(ex.SpanID) == 8 {
+								spanID = hex.EncodeToString(ex.SpanID)
+							}
+							fmt.Printf("  TraceID: %s\n", traceID)
+							fmt.Printf("  SpanID: %s\n", spanID)
+						}
+					}
+				}
+				fmt.Println("  Resource Attributes:")
+				resAttrs, _ := cfg.GetResourceAttrWithMockMarker()
+				for _, attr := range resAttrs {
+					fmt.Printf("    - %s: %v\n", attr.Key, attr.Value.AsInterface())
+				}
+				fmt.Println("--------------------------------------------------")
+			}
 		}
 
 		i++
@@ -201,7 +307,12 @@ func (w worker) simulateMetrics(res *resource.Resource, exporter sdkmetric.Expor
 			atomic.AddInt64(w.metricsCounter, 1)
 		}
 		if w.progressCh != nil {
-			w.progressCh <- struct{}{}
+			select {
+			case w.progressCh <- struct{}{}:
+			case <-ctx.Done():
+				w.logger.Info("context cancelled during progress reporting, stopping")
+				break
+			}
 		}
 		if w.numMetrics != 0 && i >= int64(w.numMetrics) {
 			break
