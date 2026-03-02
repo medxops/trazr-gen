@@ -2,12 +2,16 @@ package metrics
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"math/rand"
 	"testing"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric/noop"
 	otelmetricnoop "go.opentelemetry.io/otel/metric/noop"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.uber.org/zap"
 )
 
@@ -78,6 +82,19 @@ func TestRunWorker_ValidConfig(t *testing.T) {
 	}
 }
 
+func TestRunWorker_ActuallyRuns(t *testing.T) {
+	c := &Config{NumMetrics: 1, TotalDuration: 1, Rate: 1}
+	logger := zap.NewNop()
+	called := false
+	err := run(c, logger, func(ctx context.Context) { called = true })
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+	if !called {
+		t.Error("Expected worker to be called")
+	}
+}
+
 func TestNewWorker(t *testing.T) {
 	c := &Config{NumMetrics: 2, TotalDuration: 1, Rate: 1}
 	logger := zap.NewNop()
@@ -87,6 +104,14 @@ func TestNewWorker(t *testing.T) {
 	}
 	if w.numMetrics != 2 || w.totalDuration != 1 || w.limitPerSecond != 1 {
 		t.Errorf("Worker fields not set correctly: %+v", w)
+	}
+}
+
+func TestNewWorker_NilLogger(t *testing.T) {
+	c := &Config{NumMetrics: 2, TotalDuration: 1, Rate: 1}
+	w := NewWorker(c, nil)
+	if w == nil {
+		t.Error("Expected non-nil worker")
 	}
 }
 
@@ -104,6 +129,16 @@ func TestHeaderValue_SetAndString(t *testing.T) {
 	}
 	if err := h.Set("badformat"); err == nil {
 		t.Error("Expected error for bad format, got nil")
+	}
+}
+
+func TestHeaderValue_StringMultiple(t *testing.T) {
+	h := HeaderValue{}
+	_ = h.Set("foo=bar")
+	_ = h.Set("baz=qux")
+	s := h.String()
+	if s != "" {
+		t.Errorf("Expected empty string, got %q", s)
 	}
 }
 
@@ -222,7 +257,29 @@ func TestSimulateHistogram_InvalidConfig(t *testing.T) {
 }
 
 func TestSimulateExponentialHistogram_InvalidConfig(t *testing.T) {
-	t.Skip("Skipping: may panic or hang due to invalid config (zero/negative rate)")
+	invalidConfigs := []*Config{
+		{NumMetrics: 1, WorkerCount: 1, ServiceName: "test", Rate: 0, TotalDuration: 10 * time.Millisecond},
+		{NumMetrics: 1, WorkerCount: 1, ServiceName: "test", Rate: -1, TotalDuration: 10 * time.Millisecond},
+	}
+	for _, cfg := range invalidConfigs {
+		t.Run(fmt.Sprintf("rate=%d", cfg.Rate), func(t *testing.T) {
+			logger := zap.NewNop()
+			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			defer cancel()
+			ch := make(chan struct{})
+			go func() {
+				defer func() { _ = recover() }()
+				SimulateExponentialHistogram(otelmetricnoop.NewMeterProvider(), ExponentialHistogramConfig{}, cfg, logger)
+				ch <- struct{}{}
+			}()
+			select {
+			case <-ctx.Done():
+				t.Fatal("SimulateExponentialHistogram did not return for invalid config (rate=0 or negative)")
+			case <-ch:
+				// Test passed
+			}
+		})
+	}
 }
 
 func TestSimulateUpDownCounter_InvalidConfig(t *testing.T) {
@@ -511,5 +568,135 @@ func TestSimulateUpDownCounter_EdgeCases(t *testing.T) {
 				// Test finished
 			}
 		})
+	}
+}
+
+// Helper: returns a test config with short duration and valid rate
+func testConfig() *Config {
+	return &Config{
+		ServiceName:   "test-service",
+		TotalDuration: 10 * time.Millisecond,
+		Rate:          1,
+	}
+}
+
+func TestSimulateCounter(t *testing.T) {
+	SimulateCounter(noop.NewMeterProvider(), testConfig(), zap.NewNop())
+}
+
+func TestSimulateSum(t *testing.T) {
+	sumCfg := SumConfig{
+		Name:        "test_sum",
+		Description: "desc",
+		Unit:        "1",
+		Attributes:  []attribute.KeyValue{attribute.String("k", "v")},
+		Temporality: metricdata.CumulativeTemporality,
+		IsMonotonic: true,
+	}
+	SimulateSum(noop.NewMeterProvider(), sumCfg, testConfig(), zap.NewNop())
+}
+
+func TestSimulateGauge(t *testing.T) {
+	gaugeCfg := GaugeConfig{
+		Name:        "test_gauge",
+		Description: "desc",
+		Unit:        "1",
+		Attributes:  []attribute.KeyValue{attribute.String("k", "v")},
+		Min:         0,
+		Max:         100,
+		Temporality: metricdata.CumulativeTemporality,
+	}
+	SimulateGauge(noop.NewMeterProvider(), gaugeCfg, testConfig(), zap.NewNop())
+}
+
+func TestSimulateHistogram(t *testing.T) {
+	histCfg := HistogramConfig{
+		Name:         "test_hist",
+		Description:  "desc",
+		Unit:         "ms",
+		Attributes:   []attribute.KeyValue{attribute.String("k", "v")},
+		Temporality:  metricdata.CumulativeTemporality,
+		Bounds:       []float64{10, 20, 50},
+		RecordMinMax: true,
+	}
+	SimulateHistogram(noop.NewMeterProvider(), histCfg, testConfig(), zap.NewNop())
+}
+
+func TestSimulateExponentialHistogram(t *testing.T) {
+	expHistCfg := ExponentialHistogramConfig{
+		Name:          "test_exp_hist",
+		Description:   "desc",
+		Unit:          "ms",
+		Attributes:    []attribute.KeyValue{attribute.String("k", "v")},
+		Temporality:   metricdata.CumulativeTemporality,
+		Scale:         2,
+		MaxSize:       100,
+		RecordMinMax:  true,
+		ZeroThreshold: 0.01,
+	}
+	SimulateExponentialHistogram(noop.NewMeterProvider(), expHistCfg, testConfig(), zap.NewNop())
+}
+
+func TestSimulateUpDownCounter(t *testing.T) {
+	SimulateUpDownCounter(noop.NewMeterProvider(), testConfig(), zap.NewNop())
+}
+
+// Edge case: nil logger should not panic
+func TestSimulateSum_NilLogger(t *testing.T) {
+	sumCfg := SumConfig{}
+	SimulateSum(noop.NewMeterProvider(), sumCfg, testConfig(), nil)
+}
+
+func TestSimulateCounter_NilLogger(t *testing.T) {
+	SimulateCounter(noop.NewMeterProvider(), testConfig(), nil)
+}
+
+func TestSimulateGauge_NilLogger(t *testing.T) {
+	gaugeCfg := GaugeConfig{}
+	SimulateGauge(noop.NewMeterProvider(), gaugeCfg, testConfig(), nil)
+}
+
+func TestSimulateHistogram_NilLogger(t *testing.T) {
+	histCfg := HistogramConfig{}
+	SimulateHistogram(noop.NewMeterProvider(), histCfg, testConfig(), nil)
+}
+
+func TestSimulateExponentialHistogram_NilLogger(t *testing.T) {
+	expHistCfg := ExponentialHistogramConfig{}
+	SimulateExponentialHistogram(noop.NewMeterProvider(), expHistCfg, testConfig(), nil)
+}
+
+func TestSimulateUpDownCounter_NilLogger(t *testing.T) {
+	SimulateUpDownCounter(noop.NewMeterProvider(), testConfig(), nil)
+}
+
+// Edge case: invalid/zero rate should not panic
+func TestSimulateGauge_ZeroRate(t *testing.T) {
+	cfg := testConfig()
+	cfg.Rate = 0
+	gaugeCfg := GaugeConfig{}
+	SimulateGauge(noop.NewMeterProvider(), gaugeCfg, cfg, zap.NewNop())
+}
+
+func TestRunWorker_ZeroNumMetrics(t *testing.T) {
+	c := &Config{NumMetrics: 0, TotalDuration: 1, Rate: 1}
+	logger := zap.NewNop()
+	_ = run(c, logger, func(ctx context.Context) {})
+	// Should not call worker, but should not panic
+}
+
+func TestNewWorker_Defaults(t *testing.T) {
+	// Test with zero values
+	c := &Config{}
+	w := NewWorker(c, nil)
+	if w == nil {
+		t.Error("Expected non-nil worker")
+	}
+}
+
+func TestHeaderValue_Empty(t *testing.T) {
+	h := HeaderValue{}
+	if h.String() != "" {
+		t.Errorf("Expected empty string, got %q", h.String())
 	}
 }

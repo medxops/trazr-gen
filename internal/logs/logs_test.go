@@ -5,9 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"os"
-
-	"go.opentelemetry.io/otel/exporters/stdout/stdoutlog"
+	otellog "go.opentelemetry.io/otel/log"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 )
 
@@ -180,38 +178,39 @@ func TestRun_InvalidExporter(t *testing.T) {
 	t.Skip("Skipping: calls logs.Run with real exporter, may hang or make network calls")
 }
 
-// FileExporterTest demonstrates using a file-based exporter for logs
-func TestFileExporter_LogOutput(t *testing.T) {
-	f, err := os.CreateTemp("", "otel-logs-*.txt")
-	if err != nil {
-		t.Fatalf("failed to create temp file: %v", err)
-	}
-	defer os.Remove(f.Name())
-	defer f.Close()
+// testLogExporter is a simple in-memory exporter for unit tests
+// It collects all exported log records for assertions.
+//
+// Note: We do not use file or stdout exporters in unit tests because they introduce I/O,
+// are not always available in all SDK versions, and are not recommended for fast, reliable unit testing.
+type testLogExporter struct {
+	Records []sdklog.Record
+}
 
-	exp, err := stdoutlog.New(stdoutlog.WithWriter(f))
-	if err != nil {
-		t.Fatalf("failed to create stdoutlog exporter: %v", err)
-	}
+func (e *testLogExporter) Export(_ context.Context, recs []sdklog.Record) error {
+	e.Records = append(e.Records, recs...)
+	return nil
+}
+func (e *testLogExporter) Shutdown(_ context.Context) error   { return nil }
+func (e *testLogExporter) ForceFlush(_ context.Context) error { return nil }
 
-	lp := sdklog.NewLoggerProvider(sdklog.WithBatcher(exp))
+func TestTestLogExporter_CollectsRecords(t *testing.T) {
+	exp := &testLogExporter{}
+	processor := sdklog.NewBatchProcessor(exp)
+	lp := sdklog.NewLoggerProvider(sdklog.WithProcessor(processor))
 	logger := lp.Logger("test-logger")
 
-	record := sdklog.Record{} // Fill with test data as needed
+	record := otellog.Record{}
+	record.SetBody(otellog.StringValue("test log body"))
 	ctx := context.Background()
-	if err := logger.Emit(ctx, record); err != nil {
-		t.Errorf("failed to emit log record: %v", err)
-	}
+	logger.Emit(ctx, record)
 
 	_ = lp.Shutdown(ctx)
 
-	// Optionally, read and assert on file contents
-	f.Seek(0, 0)
-	data, err := os.ReadFile(f.Name())
-	if err != nil {
-		t.Fatalf("failed to read log file: %v", err)
+	if len(exp.Records) == 0 {
+		t.Fatal("expected at least one log record to be exported")
 	}
-	if len(data) == 0 {
-		t.Error("expected log output in file, got empty")
+	if exp.Records[0].Body().AsString() != "test log body" {
+		t.Errorf("unexpected log body: got %q", exp.Records[0].Body().AsString())
 	}
 }

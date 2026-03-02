@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
@@ -147,7 +148,7 @@ func TestRunScenario_UnknownScenario(t *testing.T) {
 }
 
 func TestRunScenario_ScenarioError(t *testing.T) {
-	Scenarios["error_scenario"] = func(context.Context, trace.Tracer, *zap.Logger, string) error {
+	Scenarios["error_scenario"] = func(ctx context.Context, tracer trace.Tracer, logger *zap.Logger, svc string) error {
 		return fmt.Errorf("forced error")
 	}
 	err := runScenario(context.Background(), "error_scenario", nil, zap.NewNop(), "svc")
@@ -155,4 +156,33 @@ func TestRunScenario_ScenarioError(t *testing.T) {
 		t.Error("expected error from scenario, got nil")
 	}
 	delete(Scenarios, "error_scenario")
+}
+
+type testSpanRecorder struct {
+	spans []sdktrace.ReadOnlySpan
+}
+
+func (r *testSpanRecorder) OnStart(parent context.Context, s sdktrace.ReadWriteSpan) {}
+func (r *testSpanRecorder) OnEnd(s sdktrace.ReadOnlySpan) {
+	r.spans = append(r.spans, s)
+}
+func (r *testSpanRecorder) Shutdown(ctx context.Context) error   { return nil }
+func (r *testSpanRecorder) ForceFlush(ctx context.Context) error { return nil }
+
+func TestTraces_EmitSpan_CustomRecorder(t *testing.T) {
+	recorder := &testSpanRecorder{}
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	tracer := tp.Tracer("test-tracer")
+
+	ctx, span := tracer.Start(context.Background(), "test-span")
+	span.End()
+
+	_ = tp.Shutdown(ctx)
+
+	if len(recorder.spans) == 0 {
+		t.Fatal("expected at least one span to be exported")
+	}
+	if recorder.spans[0].Name() != "test-span" {
+		t.Errorf("unexpected span name: got %q", recorder.spans[0].Name())
+	}
 }
