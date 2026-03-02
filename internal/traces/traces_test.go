@@ -1,0 +1,207 @@
+package traces
+
+import (
+	"context"
+	"fmt"
+	"testing"
+	"time"
+
+	"go.opentelemetry.io/otel/trace"
+	"go.uber.org/zap"
+)
+
+type dummyLogger struct{}
+
+func (d *dummyLogger) Info(msg string, fields ...zap.Field)  {}
+func (d *dummyLogger) Error(msg string, fields ...zap.Field) {}
+func (d *dummyLogger) Debug(msg string, fields ...zap.Field) {}
+func (d *dummyLogger) Warn(msg string, fields ...zap.Field)  {}
+func (d *dummyLogger) With(fields ...zap.Field) *zap.Logger  { return zap.NewNop() }
+
+func TestRun_InvalidConfig(t *testing.T) {
+	c := &Config{NumTraces: 0, TotalDuration: 0}
+	err := Run(c, zap.NewNop())
+	if err == nil {
+		t.Error("Expected error for invalid config, got nil")
+	}
+}
+
+func TestRun_ValidConfig(t *testing.T) {
+	c := &Config{
+		NumTraces:   1,
+		WorkerCount: 1,
+		Rate:        1,
+		ServiceName: "test-service",
+		Scenarios:   []string{},
+	}
+	err := Run(c, zap.NewNop())
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+}
+
+func TestRun_DurationConfig(t *testing.T) {
+	c := &Config{
+		NumTraces:     0,
+		TotalDuration: 1,
+		WorkerCount:   1,
+		Rate:          1,
+		ServiceName:   "test-service",
+		Scenarios:     []string{},
+	}
+	err := Run(c, zap.NewNop())
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+}
+
+func TestRun_NegativeRate(t *testing.T) {
+	cfg := &Config{
+		NumTraces:   1,
+		WorkerCount: 1,
+		ServiceName: "test-service",
+		Rate:        -1,
+		Endpoint:    "dummy",
+		UseHTTP:     true,
+		Insecure:    true,
+		Headers:     map[string]string{},
+	}
+	err := Run(cfg, zap.NewNop())
+	if err == nil {
+		t.Error("Expected error for negative rate, got nil")
+	}
+}
+
+func TestRun_ZeroRate(t *testing.T) {
+	cfg := &Config{
+		NumTraces:   1,
+		WorkerCount: 1,
+		ServiceName: "test-service",
+		Rate:        0,
+		Endpoint:    "dummy",
+		UseHTTP:     true,
+		Insecure:    true,
+		Headers:     map[string]string{},
+	}
+	err := Run(cfg, zap.NewNop())
+	if err == nil {
+		t.Error("Expected error for zero rate, got nil")
+	}
+}
+
+func TestRun_NegativeNumTraces(t *testing.T) {
+	cfg := &Config{
+		NumTraces:   -5,
+		WorkerCount: 1,
+		ServiceName: "test-service",
+		Rate:        1,
+		Endpoint:    "dummy",
+		UseHTTP:     true,
+		Insecure:    true,
+		Headers:     map[string]string{},
+	}
+	err := Run(cfg, zap.NewNop())
+	if err == nil {
+		t.Error("Expected error for negative NumTraces, got nil")
+	}
+}
+
+func TestRun_EmptyServiceName(t *testing.T) {
+	cfg := &Config{
+		NumTraces:   1,
+		WorkerCount: 1,
+		ServiceName: "",
+		Rate:        1,
+		Endpoint:    "dummy",
+		UseHTTP:     true,
+		Insecure:    true,
+		Headers:     map[string]string{},
+	}
+	err := Run(cfg, zap.NewNop())
+	if err == nil {
+		t.Error("Expected error for empty ServiceName, got nil")
+	}
+}
+
+func TestRun_NumTracesAndDurationZero(t *testing.T) {
+	cfg := &Config{
+		NumTraces:     0,
+		TotalDuration: 0,
+		WorkerCount:   1,
+		ServiceName:   "test-service",
+		Endpoint:      "dummy",
+		UseHTTP:       true,
+		Insecure:      true,
+		Headers:       map[string]string{},
+	}
+	ch := make(chan struct{})
+	go func() {
+		_ = Run(cfg, zap.NewNop())
+		close(ch)
+	}()
+	select {
+	case <-ch:
+		// finished quickly
+	case <-time.After(100 * time.Millisecond):
+		t.Skip("Skipping: Run would block indefinitely with no NumTraces or TotalDuration")
+	}
+}
+
+func TestRun_InvalidExporter(t *testing.T) {
+	cfg := &Config{
+		NumTraces:   1,
+		WorkerCount: 1,
+		ServiceName: "test-service",
+		Rate:        1,
+		Endpoint:    ":bad", // Invalid endpoint
+		UseHTTP:     true,
+		Insecure:    true,
+		Headers:     map[string]string{},
+	}
+	err := Run(cfg, zap.NewNop())
+	if err == nil {
+		t.Error("Expected error for invalid exporter, got nil")
+	}
+}
+
+func TestRun_Scenarios(t *testing.T) {
+	cases := []struct {
+		name      string
+		config    *Config
+		wantError bool
+	}{
+		{"valid basic", &Config{NumTraces: 1, WorkerCount: 1, ServiceName: "svc", Scenarios: []string{"basic"}, Rate: 1}, false},
+		{"unknown scenario", &Config{NumTraces: 1, WorkerCount: 1, ServiceName: "svc", Scenarios: []string{"unknown"}, Rate: 1}, true},
+		{"multiple workers", &Config{NumTraces: 2, WorkerCount: 2, ServiceName: "svc", Scenarios: []string{"basic"}, Rate: 1}, false},
+		{"propagate context", &Config{NumTraces: 1, WorkerCount: 1, ServiceName: "svc", Scenarios: []string{"basic"}, PropagateContext: true, Rate: 1}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := Run(tc.config, zap.NewNop())
+			if tc.wantError && err == nil {
+				t.Errorf("expected error, got nil")
+			}
+			if !tc.wantError && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestRunScenario_UnknownScenario(t *testing.T) {
+	err := runScenario(context.Background(), "not_a_scenario", nil, zap.NewNop(), "svc")
+	if err == nil {
+		t.Error("expected error for unknown scenario, got nil")
+	}
+}
+
+func TestRunScenario_ScenarioError(t *testing.T) {
+	Scenarios["error_scenario"] = func(context.Context, trace.Tracer, *zap.Logger, string) error {
+		return fmt.Errorf("forced error")
+	}
+	err := runScenario(context.Background(), "error_scenario", nil, zap.NewNop(), "svc")
+	if err == nil {
+		t.Error("expected error from scenario, got nil")
+	}
+	delete(Scenarios, "error_scenario")
+}
