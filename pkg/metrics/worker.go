@@ -17,6 +17,8 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	"go.uber.org/zap"
 	"golang.org/x/time/rate"
+
+	"github.com/medxops/trazr-gen/internal/common"
 )
 
 type worker struct {
@@ -100,6 +102,16 @@ func (w worker) simulateMetrics(ctx context.Context, res *resource.Resource, exp
 
 	var i int64
 	for w.running.Load() && ctx.Err() == nil {
+		// Rate limit at the top of the loop so output pacing is visible
+		if err := limiter.Wait(ctx); err != nil {
+			if ctx.Err() != nil {
+				w.logger.Info("context cancelled during rate limiting, stopping")
+				break
+			}
+			w.reportProgressf("Limiter wait failed: %v", err)
+			w.logger.Fatal("limiter wait failed, retry", zap.Error(err))
+		}
+
 		var metrics []metricdata.Metrics
 		now := w.clock.Now()
 		if w.aggregationTemporality.AsTemporality() == metricdata.DeltaTemporality {
@@ -186,15 +198,6 @@ func (w worker) simulateMetrics(ctx context.Context, res *resource.Resource, exp
 			ScopeMetrics: []metricdata.ScopeMetrics{{Metrics: metrics}},
 		}
 
-		if err := limiter.Wait(ctx); err != nil {
-			if ctx.Err() != nil {
-				w.logger.Info("context cancelled during rate limiting, stopping")
-				break
-			}
-			w.reportProgressf("Limiter wait failed: %v", err)
-			w.logger.Fatal("limiter wait failed, retry", zap.Error(err))
-		}
-
 		if err := exporter.Export(ctx, &rm); err != nil {
 			if ctx.Err() != nil {
 				w.logger.Info("context cancelled during export, stopping")
@@ -225,7 +228,9 @@ func (w worker) simulateMetrics(ctx context.Context, res *resource.Resource, exp
 						fmt.Println("  Attributes:")
 						for i := 0; i < dp.Attributes.Len(); i++ {
 							kv := dp.Attributes.ToSlice()[i]
-							fmt.Printf("    - %s: %v\n", kv.Key, kv.Value.AsInterface())
+							key := string(kv.Key)
+						val := common.FormatAttrValue(kv.Value.AsInterface())
+						fmt.Printf("    - %s: %s\n", key, common.FormatSensitiveValue(key, val))
 						}
 						if len(dp.Exemplars) > 0 {
 							ex := dp.Exemplars[0]
@@ -250,7 +255,9 @@ func (w worker) simulateMetrics(ctx context.Context, res *resource.Resource, exp
 						fmt.Println("  Attributes:")
 						for i := 0; i < dp.Attributes.Len(); i++ {
 							kv := dp.Attributes.ToSlice()[i]
-							fmt.Printf("    - %s: %v\n", kv.Key, kv.Value.AsInterface())
+							key := string(kv.Key)
+						val := common.FormatAttrValue(kv.Value.AsInterface())
+						fmt.Printf("    - %s: %s\n", key, common.FormatSensitiveValue(key, val))
 						}
 						if len(dp.Exemplars) > 0 {
 							ex := dp.Exemplars[0]
@@ -276,7 +283,9 @@ func (w worker) simulateMetrics(ctx context.Context, res *resource.Resource, exp
 						fmt.Println("  Attributes:")
 						for i := 0; i < dp.Attributes.Len(); i++ {
 							kv := dp.Attributes.ToSlice()[i]
-							fmt.Printf("    - %s: %v\n", kv.Key, kv.Value.AsInterface())
+							key := string(kv.Key)
+						val := common.FormatAttrValue(kv.Value.AsInterface())
+						fmt.Printf("    - %s: %s\n", key, common.FormatSensitiveValue(key, val))
 						}
 						if len(dp.Exemplars) > 0 {
 							ex := dp.Exemplars[0]
@@ -296,7 +305,9 @@ func (w worker) simulateMetrics(ctx context.Context, res *resource.Resource, exp
 				fmt.Println("  Resource Attributes:")
 				resAttrs, _ := cfg.GetResourceAttrWithMockMarker()
 				for _, attr := range resAttrs {
-					fmt.Printf("    - %s: %v\n", attr.Key, attr.Value.AsInterface())
+					key := string(attr.Key)
+					val := common.FormatAttrValue(attr.Value.AsInterface())
+					fmt.Printf("    - %s: %s\n", key, common.FormatSensitiveValue(key, val))
 				}
 				fmt.Println("--------------------------------------------------")
 			}

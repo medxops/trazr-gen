@@ -18,6 +18,8 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.25.0"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
+
+	"github.com/medxops/trazr-gen/internal/common"
 	"golang.org/x/time/rate"
 )
 
@@ -74,11 +76,15 @@ func printSpanDebug(label, name, parentSpanID string, kind trace.SpanKind, spanC
 	fmt.Printf("  End:   %s\n", end.Format(time.RFC3339Nano))
 	fmt.Println("  Attributes:")
 	for _, attr := range attrs {
-		fmt.Printf("    - %s: %v\n", attr.Key, attr.Value.AsInterface())
+		key := string(attr.Key)
+		val := common.FormatAttrValue(attr.Value.AsInterface())
+		fmt.Printf("    - %s: %s\n", key, common.FormatSensitiveValue(key, val))
 	}
 	fmt.Println("  Resource Attributes:")
 	for _, attr := range resAttrs {
-		fmt.Printf("    - %s: %v\n", attr.Key, attr.Value.AsInterface())
+		key := string(attr.Key)
+		val := common.FormatAttrValue(attr.Value.AsInterface())
+		fmt.Printf("    - %s: %s\n", key, common.FormatSensitiveValue(key, val))
 	}
 	fmt.Println("--------------------------------------------------")
 }

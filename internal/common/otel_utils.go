@@ -1,6 +1,9 @@
 package common
 
 import (
+	"fmt"
+	"strings"
+
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/log"
 )
@@ -39,6 +42,56 @@ func AttrToLogKeyValue(attrs []attribute.KeyValue) []log.KeyValue {
 		}
 	}
 	return result
+}
+
+// sensitiveKeys holds attribute keys whose values should be highlighted in
+// terminal output. Populated at startup from the config's sensitive-data list.
+var sensitiveKeys = map[string]bool{}
+
+// SetSensitiveKeys replaces the sensitive keys set with the provided list.
+// Call this once during config initialization.
+func SetSensitiveKeys(keys []string) {
+	m := make(map[string]bool, len(keys))
+	for _, k := range keys {
+		m[k] = true
+	}
+	sensitiveKeys = m
+}
+
+// ANSI escape codes for yellow text
+const (
+	ansiYellow = "\033[33m"
+	ansiReset  = "\033[0m"
+)
+
+// FormatAttrValue formats an attribute value for terminal display, trimming
+// trailing whitespace that YAML multi-line blocks may introduce.
+func FormatAttrValue(v interface{}) string {
+	return strings.TrimSpace(fmt.Sprintf("%v", v))
+}
+
+// IsSensitiveKey returns true if the given attribute key is considered sensitive.
+func IsSensitiveKey(key string) bool {
+	return sensitiveKeys[key]
+}
+
+// Yellow wraps text in ANSI yellow escape codes for terminal display.
+func Yellow(s string) string {
+	return ansiYellow + s + ansiReset
+}
+
+// FormatSensitiveValue returns the value highlighted in yellow if the key
+// is in the sensitive keys list, otherwise returns it plain.
+func FormatSensitiveValue(key string, value string) string {
+	if IsSensitiveKey(key) {
+		return Yellow(value)
+	}
+	return value
+}
+
+// FormatSensitiveBody wraps the body text in yellow for terminal display.
+func FormatSensitiveBody(body string) string {
+	return Yellow(body)
 }
 
 // SeverityTextFromNumber returns the canonical OpenTelemetry severity text for a given number

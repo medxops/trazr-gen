@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -175,6 +176,16 @@ func (c *Config) Endpoint() string {
 	return defaultGRPCEndpoint
 }
 
+// IsEndpointReachable checks if the OTLP collector endpoint is reachable via TCP.
+func (c *Config) IsEndpointReachable() bool {
+	conn, err := net.DialTimeout("tcp", c.Endpoint(), 2*time.Second)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
+}
+
 // CommonFlags registers common config flags.
 func (c *Config) CommonFlags(fs *pflag.FlagSet) {
 	fs.IntVar(&c.WorkerCount, "workers", c.WorkerCount, "Number of workers (goroutines) to run")
@@ -310,5 +321,9 @@ func (c *Config) InitAttributes() error {
 
 	InjectSensitiveDataMarker(c.ResourceAttributes, c.SensitiveData)
 	InjectSensitiveDataMarker(c.TelemetryAttributes, c.SensitiveData)
+
+	// Populate the sensitive keys set for terminal output highlighting
+	SetSensitiveKeys(c.SensitiveData)
+
 	return nil
 }

@@ -745,7 +745,9 @@ func (w *EnhancedWorker) displayMetricRecord(m metricdata.Metrics, cfg *metrics.
 	fmt.Println("  Resource Attributes:")
 	resAttrs, _ := cfg.GetResourceAttrWithMockMarker()
 	for _, attr := range resAttrs {
-		fmt.Printf("    - %s: %v\n", attr.Key, attr.Value.AsInterface())
+		key := string(attr.Key)
+		val := common.FormatAttrValue(attr.Value.AsInterface())
+		fmt.Printf("    - %s: %s\n", key, common.FormatSensitiveValue(key, val))
 	}
 	fmt.Println("--------------------------------------------------")
 }
@@ -784,7 +786,9 @@ func (w *EnhancedWorker) displayAttributes(attrs attribute.Set) {
 	fmt.Println("  Attributes:")
 	for i := 0; i < attrs.Len(); i++ {
 		kv := attrs.ToSlice()[i]
-		fmt.Printf("    - %s: %v\n", kv.Key, kv.Value.AsInterface())
+		key := string(kv.Key)
+		val := common.FormatAttrValue(kv.Value.AsInterface())
+		fmt.Printf("    - %s: %s\n", key, common.FormatSensitiveValue(key, val))
 	}
 }
 
@@ -970,7 +974,8 @@ func (w *EnhancedWorker) displaySpansSequentially(spanSignals []SpanSignals) {
 			fmt.Printf("  Attributes:\n")
 			for key, value := range span.Attributes {
 				if key != "span.kind" { // Already displayed above
-					fmt.Printf("    - %s: %v\n", key, value)
+					val := common.FormatAttrValue(value)
+					fmt.Printf("    - %s: %s\n", key, common.FormatSensitiveValue(key, val))
 				}
 			}
 		} else {
@@ -984,7 +989,8 @@ func (w *EnhancedWorker) displaySpansSequentially(spanSignals []SpanSignals) {
 				fmt.Printf("    %d. %s at %s\n", j+1, event.Name, event.Timestamp.Format(time.RFC3339Nano))
 				if len(event.Attributes) > 0 {
 					for key, value := range event.Attributes {
-						fmt.Printf("      - %s: %v\n", key, value)
+						val := common.FormatAttrValue(value)
+						fmt.Printf("      - %s: %s\n", key, common.FormatSensitiveValue(key, val))
 					}
 				}
 			}
@@ -994,7 +1000,7 @@ func (w *EnhancedWorker) displaySpansSequentially(spanSignals []SpanSignals) {
 		if len(spanData.logs) > 0 {
 			fmt.Printf("  Logs:\n")
 			for j, logCfg := range spanData.logs {
-				fmt.Printf("    %d. [%s] %s\n", j+1, strings.ToUpper(logCfg.SeverityText), logCfg.Body)
+				fmt.Printf("    %d. [%s] %s\n", j+1, strings.ToUpper(logCfg.SeverityText), common.FormatSensitiveBody(logCfg.Body))
 			}
 		}
 
@@ -1020,7 +1026,9 @@ func (w *EnhancedWorker) displaySpansSequentially(spanSignals []SpanSignals) {
 		spanResource := w.getResourceForSpan(span)
 		resAttrs := spanResource.Attributes()
 		for _, attr := range resAttrs {
-			fmt.Printf("    - %s: %v\n", attr.Key, attr.Value.AsInterface())
+			key := string(attr.Key)
+			val := common.FormatAttrValue(attr.Value.AsInterface())
+			fmt.Printf("    - %s: %s\n", key, common.FormatSensitiveValue(key, val))
 		}
 
 		fmt.Println("--------------------------------------------------")

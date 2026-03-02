@@ -57,7 +57,9 @@ func TestFixedNumberOfLogs(t *testing.T) {
 
 	// test
 	logger, _ := zap.NewDevelopment()
-	require.NoError(t, run(cfg, m, logger))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, run(ctx, cfg, m, logger))
 
 	time.Sleep(1 * time.Second)
 
@@ -78,7 +80,9 @@ func TestRateOfLogs(t *testing.T) {
 	m := &mockExporter{}
 
 	// test
-	require.NoError(t, run(cfg, m, zap.NewNop()))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, run(ctx, cfg, m, zap.NewNop()))
 
 	// verify
 	// the minimum acceptable number of logs for the rate of 10/sec for half a second
@@ -100,7 +104,9 @@ func TestUnthrottled(t *testing.T) {
 
 	// test
 	logger, _ := zap.NewDevelopment()
-	require.NoError(t, run(cfg, m, logger))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, run(ctx, cfg, m, logger))
 
 	assert.Greater(t, len(m.logs), 100, "there should have been more than 100 logs, had %d", len(m.logs))
 }
@@ -119,7 +125,9 @@ func TestCustomBody(t *testing.T) {
 
 	// test
 	logger, _ := zap.NewDevelopment()
-	require.NoError(t, run(cfg, m, logger))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, run(ctx, cfg, m, logger))
 
 	assert.Equal(t, "custom body", m.logs[0].Body().AsString())
 }
@@ -131,7 +139,9 @@ func TestLogsWithNoTelemetryAttributes(t *testing.T) {
 
 	// test
 	logger, _ := zap.NewDevelopment()
-	require.NoError(t, run(cfg, m, logger))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, run(ctx, cfg, m, logger))
 
 	time.Sleep(1 * time.Second)
 
@@ -163,7 +173,9 @@ func TestLogsWithOneTelemetryAttributes(t *testing.T) {
 
 	// test
 	logger, _ := zap.NewDevelopment()
-	require.NoError(t, run(cfg, m, logger))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, run(ctx, cfg, m, logger))
 
 	time.Sleep(1 * time.Second)
 
@@ -201,7 +213,9 @@ func TestLogsWithMultipleTelemetryAttributes(t *testing.T) {
 
 	// test
 	logger, _ := zap.NewDevelopment()
-	require.NoError(t, run(cfg, m, logger))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, run(ctx, cfg, m, logger))
 
 	time.Sleep(1 * time.Second)
 
@@ -235,7 +249,9 @@ func TestLogsWithTraceIDAndSpanID(t *testing.T) {
 
 	// test
 	logger, _ := zap.NewDevelopment()
-	require.NoError(t, run(cfg, m, logger))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, run(ctx, cfg, m, logger))
 
 	// verify
 	require.Len(t, m.logs, qty)
@@ -289,7 +305,9 @@ func TestValidate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			m := &mockExporter{}
 			logger, _ := zap.NewDevelopment()
-			require.EqualError(t, run(tt.cfg, m, logger), tt.wantErrMessage)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			require.EqualError(t, run(ctx, tt.cfg, m, logger), tt.wantErrMessage)
 		})
 	}
 }

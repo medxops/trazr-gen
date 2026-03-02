@@ -44,7 +44,9 @@ func TestFixedNumberOfTraces(t *testing.T) {
 	}
 
 	// test
-	require.NoError(t, run(cfg, zap.NewNop()))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, run(ctx, cfg, zap.NewNop()))
 
 	// verify
 	assert.Len(t, syncer.spans, 2) // each trace has two spans
@@ -69,7 +71,9 @@ func TestNumberOfSpans(t *testing.T) {
 	expectedNumSpans := cfg.NumChildSpans + 1 // each trace has 1 + NumChildSpans spans
 
 	// test
-	require.NoError(t, run(cfg, zap.NewNop()))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, run(ctx, cfg, zap.NewNop()))
 
 	// verify
 	assert.Len(t, syncer.spans, expectedNumSpans)
@@ -96,7 +100,9 @@ func TestRateOfSpans(t *testing.T) {
 	require.Empty(t, syncer.spans)
 
 	// test
-	require.NoError(t, run(cfg, zap.NewNop()))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, run(ctx, cfg, zap.NewNop()))
 
 	// verify
 	// the minimum acceptable number of spans for the rate of 10/sec for half a second
@@ -128,7 +134,9 @@ func TestSpanDuration(t *testing.T) {
 	require.Empty(t, syncer.spans)
 
 	// test
-	require.NoError(t, run(cfg, zap.NewNop()))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, run(ctx, cfg, zap.NewNop()))
 
 	for _, span := range syncer.spans {
 		startTime, endTime := span.StartTime(), span.EndTime()
@@ -157,7 +165,9 @@ func TestUnthrottled(t *testing.T) {
 	require.Empty(t, syncer.spans)
 
 	// test
-	require.NoError(t, run(cfg, zap.NewNop()))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, run(ctx, cfg, zap.NewNop()))
 
 	// verify
 	// the minimum acceptable number of spans -- the real number should be > 10k, but CI env might be slower
@@ -181,7 +191,9 @@ func TestSpanKind(t *testing.T) {
 	}
 
 	// test
-	require.NoError(t, run(cfg, zap.NewNop()))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, run(ctx, cfg, zap.NewNop()))
 
 	// verify that the default Span Kind is being overridden
 	for _, span := range syncer.spans {
@@ -232,13 +244,17 @@ func TestSpanStatuses(t *testing.T) {
 
 			// test the program given input, including erroneous inputs
 			if tt.validInput {
-				require.NoError(t, run(cfg, zap.NewNop()))
+				ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, run(ctx, cfg, zap.NewNop()))
 				// verify that the default the span status is set as expected
 				for _, span := range syncer.spans {
 					assert.Equalf(t, span.Status().Code, tt.spanStatus, "span status: %v and expected status %v", span.Status().Code, tt.spanStatus)
 				}
 			} else {
-				require.Error(t, run(cfg, zap.NewNop()))
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				require.Error(t, run(ctx, cfg, zap.NewNop()))
 			}
 		})
 	}
@@ -256,7 +272,9 @@ func TestSpansWithNoAttrs(t *testing.T) {
 	cfg := configWithNoAttributes(2, "")
 
 	// test
-	require.NoError(t, run(cfg, zap.NewNop()))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, run(ctx, cfg, zap.NewNop()))
 
 	// verify
 	assert.Len(t, syncer.spans, 4) // each trace has two spans
@@ -278,7 +296,9 @@ func TestSpansWithOneAttrs(t *testing.T) {
 	cfg := configWithOneAttribute(2, "")
 
 	// test
-	require.NoError(t, run(cfg, zap.NewNop()))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, run(ctx, cfg, zap.NewNop()))
 
 	// verify
 	assert.Len(t, syncer.spans, 4) // each trace has two spans
@@ -300,7 +320,9 @@ func TestSpansWithMultipleAttrs(t *testing.T) {
 	cfg := configWithMultipleAttributes(2, "")
 
 	// test
-	require.NoError(t, run(cfg, zap.NewNop()))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, run(ctx, cfg, zap.NewNop()))
 
 	// verify
 	assert.Len(t, syncer.spans, 4) // each trace has two spans
@@ -335,7 +357,9 @@ func TestValidate(t *testing.T) {
 			tracerProvider.RegisterSpanProcessor(sp)
 			otel.SetTracerProvider(tracerProvider)
 			logger, _ := zap.NewDevelopment()
-			require.EqualError(t, run(tt.cfg, logger), tt.wantErrMessage)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			require.EqualError(t, run(ctx, tt.cfg, logger), tt.wantErrMessage)
 		})
 	}
 }

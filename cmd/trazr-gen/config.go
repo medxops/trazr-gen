@@ -9,6 +9,7 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 
 	"github.com/medxops/trazr-gen/internal/common"
@@ -176,8 +177,8 @@ func init() {
 	}
 
 	// Ensure config is loaded after flags are parsed
-	rootCmd.PersistentPreRunE = func(_ *cobra.Command, _ []string) error {
-		initConfig()
+	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
+		initConfig(cmd)
 
 		// Ensure global log-level flag applies to all subcommand configs even without a config file
 		if lvl := viper.GetString("log-level"); lvl != "" {
@@ -192,31 +193,62 @@ func init() {
 	rootCmd.SetHelpTemplate(rootHelpTemplate)
 }
 
-func initConfig() {
-	if configFile != "" {
-		viper.SetConfigFile(configFile)
+func initConfig(cmd *cobra.Command) {
+	if configFile == "" {
 		viper.AutomaticEnv()
-		if err := viper.ReadInConfig(); err != nil {
-			fmt.Println("Error reading config file:", err)
-			os.Exit(1)
+		return
+	}
+
+	// Flags are registered with pointer binding (e.g. Float64Var(&c.Rate, ...)),
+	// so pflag and the config struct share the same memory. viper.Unmarshal writes
+	// config-file values through mapstructure/reflection, which overwrites both.
+	// To preserve CLI precedence: snapshot user-set flag values before unmarshal,
+	// then restore them after via pflag's Set() method.
+	cliOverrides := snapshotChangedFlags(cmd)
+
+	viper.SetConfigFile(configFile)
+	viper.AutomaticEnv()
+	if err := viper.ReadInConfig(); err != nil {
+		fmt.Println("Error reading config file:", err)
+		os.Exit(1)
+	}
+
+	_ = viper.Unmarshal(tracesCfg)
+	_ = viper.Unmarshal(metricsCfg)
+	_ = viper.Unmarshal(logsCfg)
+	if sub := viper.Sub("traces"); sub != nil {
+		_ = sub.Unmarshal(tracesCfg)
+	}
+	if sub := viper.Sub("metrics"); sub != nil {
+		_ = sub.Unmarshal(metricsCfg)
+	}
+	if sub := viper.Sub("logs"); sub != nil {
+		_ = sub.Unmarshal(logsCfg)
+	}
+
+	restoreChangedFlags(cmd, cliOverrides)
+}
+
+// snapshotChangedFlags captures the string representation of every flag
+// the user explicitly set on the command line (Visit only walks changed flags).
+func snapshotChangedFlags(cmd *cobra.Command) map[string]string {
+	snapshot := make(map[string]string)
+	visit := func(f *pflag.Flag) { snapshot[f.Name] = f.Value.String() }
+	cmd.Flags().Visit(visit)
+	cmd.InheritedFlags().Visit(visit)
+	return snapshot
+}
+
+// restoreChangedFlags writes the captured CLI values back through pflag's
+// Value.Set, which parses the string into the correct type and stores it
+// via the original pointer binding — directly updating the config struct.
+func restoreChangedFlags(cmd *cobra.Command, snapshot map[string]string) {
+	for name, val := range snapshot {
+		if f := cmd.Flags().Lookup(name); f != nil {
+			_ = f.Value.Set(val)
+		} else if f := cmd.InheritedFlags().Lookup(name); f != nil {
+			_ = f.Value.Set(val)
 		}
-		// Unmarshal global/common fields into each config struct
-		_ = viper.Unmarshal(tracesCfg)
-		_ = viper.Unmarshal(metricsCfg)
-		_ = viper.Unmarshal(logsCfg)
-		// Unmarshal subcommand-specific fields if present
-		if sub := viper.Sub("traces"); sub != nil {
-			_ = sub.Unmarshal(tracesCfg)
-		}
-		if sub := viper.Sub("metrics"); sub != nil {
-			_ = sub.Unmarshal(metricsCfg)
-		}
-		if sub := viper.Sub("logs"); sub != nil {
-			_ = sub.Unmarshal(logsCfg)
-		}
-	} else {
-		// No config file specified, just use environment variables and flags
-		viper.AutomaticEnv()
 	}
 }
 

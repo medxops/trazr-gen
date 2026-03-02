@@ -215,6 +215,7 @@ codeql-db/*
 codeql-results.sarif
 coverage.txt
 testdata/*
+claude.md
 
 .secrets
 private.key

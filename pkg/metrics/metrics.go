@@ -66,50 +66,63 @@ func Start(cfg *Config, logger *zap.Logger) error {
 		return err
 	}
 
-	expF := exporterFactory(cfg, logger)
-	var exp sdkmetric.Exporter
-	// Root context canceled on SIGINT/SIGTERM
-	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	// Exporter creation bounded by timeout and signal-aware
-	ctx, cancel := context.WithTimeout(rootCtx, 1*time.Minute)
-	defer cancel()
-
-	deadline := time.Now().Add(1 * time.Minute)
-	backoffDelay := 500 * time.Millisecond
-	maxDelay := 10 * time.Second
-	for {
-		var err error
-		exp, err = expF()
-		if err == nil {
-			break
-		}
-		if time.Now().After(deadline) || ctx.Err() != nil {
-			logger.Error("giving up creating metrics exporter", zap.Error(err))
-			return err
-		}
-		logger.Warn("failed to create metrics exporter, will retry", zap.Error(err), zap.Duration("next_backoff", backoffDelay))
-		select {
-		case <-time.After(backoffDelay):
-			backoffDelay *= 2
-			if backoffDelay > maxDelay {
-				backoffDelay = maxDelay
-			}
-		case <-ctx.Done():
-			logger.Error("canceled while creating metrics exporter", zap.Error(ctx.Err()))
-			return ctx.Err()
+	noExport := !cfg.IsEndpointReachable()
+	if noExport {
+		logger.Info("no collector reachable, skipping export", zap.String("endpoint", cfg.Endpoint()))
+		if cfg.TerminalOutput {
+			fmt.Printf("No collector at %s — skipping export\n", cfg.Endpoint())
 		}
 	}
 
-	// Ensure exporter is shut down once after generation completes
-	defer func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		logger.Info("stopping the exporter")
-		if tempError := exp.Shutdown(shutdownCtx); tempError != nil {
-			logger.Error("failed to stop the exporter", zap.Error(tempError))
+	var exp sdkmetric.Exporter
+
+	if noExport {
+		exp = &noopMetricExporter{}
+	} else {
+		expF := exporterFactory(cfg, logger)
+		expCtx, expCancel := context.WithTimeout(context.Background(), 1*time.Minute)
+		defer expCancel()
+
+		deadline := time.Now().Add(1 * time.Minute)
+		backoffDelay := 500 * time.Millisecond
+		maxDelay := 10 * time.Second
+		for {
+			var err error
+			exp, err = expF()
+			if err == nil {
+				break
+			}
+			if time.Now().After(deadline) || expCtx.Err() != nil {
+				logger.Error("giving up creating metrics exporter", zap.Error(err))
+				return err
+			}
+			logger.Warn("failed to create metrics exporter, will retry", zap.Error(err), zap.Duration("next_backoff", backoffDelay))
+			select {
+			case <-time.After(backoffDelay):
+				backoffDelay *= 2
+				if backoffDelay > maxDelay {
+					backoffDelay = maxDelay
+				}
+			case <-expCtx.Done():
+				logger.Error("canceled while creating metrics exporter", zap.Error(expCtx.Err()))
+				return expCtx.Err()
+			}
 		}
-	}()
+
+		// Ensure exporter is shut down once after generation completes
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			logger.Info("stopping the exporter")
+			if tempError := exp.Shutdown(shutdownCtx); tempError != nil {
+				logger.Error("failed to stop the exporter", zap.Error(tempError))
+			}
+		}()
+	}
+
+	// Root context canceled on SIGINT/SIGTERM
+	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	logger.Info("starting the metrics generator with configuration", zap.Any("config", cfg))
 	if cfg.TerminalOutput {
@@ -202,7 +215,10 @@ func run(ctx context.Context, c *Config, exporter sdkmetric.Exporter, logger *za
 	}
 
 	if c.TotalDuration > 0 {
-		time.Sleep(c.TotalDuration)
+		select {
+		case <-time.After(c.TotalDuration):
+		case <-ctx.Done():
+		}
 		running.Store(false)
 	}
 	wg.Wait()
@@ -210,6 +226,22 @@ func run(ctx context.Context, c *Config, exporter sdkmetric.Exporter, logger *za
 	logger.Info("final count", zap.Int64("metrics_generated", atomic.LoadInt64(&totalMetrics)))
 	return nil
 }
+
+// noopMetricExporter discards all records. Used when no collector is
+// reachable so the existing run() logic still drives generation.
+type noopMetricExporter struct{}
+
+func (n *noopMetricExporter) Temporality(_ sdkmetric.InstrumentKind) metricdata.Temporality {
+	return metricdata.CumulativeTemporality
+}
+func (n *noopMetricExporter) Aggregation(_ sdkmetric.InstrumentKind) sdkmetric.Aggregation {
+	return sdkmetric.AggregationDefault{}
+}
+func (n *noopMetricExporter) Export(_ context.Context, _ *metricdata.ResourceMetrics) error {
+	return nil
+}
+func (n *noopMetricExporter) ForceFlush(_ context.Context) error { return nil }
+func (n *noopMetricExporter) Shutdown(_ context.Context) error   { return nil }
 
 type exporterFunc func() (sdkmetric.Exporter, error)
 

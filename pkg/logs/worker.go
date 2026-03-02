@@ -317,12 +317,14 @@ func (w worker) simulateLogs(ctx context.Context, cfg *Config, res *resource.Res
 	var i int64
 
 	for w.running.Load() && ctx.Err() == nil {
-		// Check context cancellation first
-		select {
-		case <-ctx.Done():
-			w.logger.Info("worker context cancelled, stopping")
-			break
-		default:
+		// Rate limit at the top of the loop so output pacing is visible
+		if err := limiter.Wait(ctx); err != nil {
+			if ctx.Err() != nil {
+				w.logger.Info("context cancelled during rate limiting, stopping")
+				break
+			}
+			w.reportProgressf("Limiter wait failed: %v", err)
+			w.logger.Fatal("limiter wait failed, retry", zap.Error(err))
 		}
 
 		// Process trace and span IDs
@@ -330,6 +332,15 @@ func (w worker) simulateLogs(ctx context.Context, cfg *Config, res *resource.Res
 
 		// Process log body with mock data templating
 		body, logBodyExpanded := w.processLogBody(cfg)
+
+		// If using the default body, append a running number (Log Message #<n>)
+		// Only do this when the body wasn't expanded via mock templating.
+		if !logBodyExpanded {
+			// Treat default body case-insensitively to be resilient to minor casing differences
+			if strings.EqualFold(strings.TrimSpace(body), "Log message") {
+				body = fmt.Sprintf("Log Message #%d", i+1)
+			}
+		}
 
 		// Process attributes
 		origAttrs, attrs, err := w.processAttributes(cfg, logBodyExpanded)
@@ -361,16 +372,6 @@ func (w worker) simulateLogs(ctx context.Context, cfg *Config, res *resource.Res
 		// Optionally print detailed output to terminal
 		if cfg.TerminalOutput && cfg.PrintDetails {
 			w.printLogDetails(cfg, data, origAttrs, data.attrs, res)
-		}
-
-		// Export log with context-aware rate limiting
-		if err := limiter.Wait(ctx); err != nil {
-			if ctx.Err() != nil {
-				w.logger.Info("context cancelled during rate limiting, stopping")
-				break
-			}
-			w.reportProgressf("Limiter wait failed: %v", err)
-			w.logger.Fatal("limiter wait failed, retry", zap.Error(err))
 		}
 
 		if err := exporter.Export(ctx, []sdklog.Record{logRecord}); err != nil {
@@ -423,14 +424,16 @@ func (w worker) printLogDetails(cfg *Config, data *logData, attrs []attribute.Ke
 	}
 
 	fmt.Println("Generated Log Record:")
-	fmt.Printf("  Body: %s\n\n", data.body)
+	fmt.Printf("  Body: %s\n", common.FormatSensitiveBody(strings.TrimSpace(data.body)))
 	fmt.Printf("  Severity Number (int): %d\n", data.severityNumber)
 	fmt.Printf("  Severity Text: %s\n", data.severityText)
 	fmt.Printf("  TraceID: %s\n", traceIDStr)
 	fmt.Printf("  SpanID: %s\n", spanIDStr)
 	fmt.Println("  Attributes:")
 	for _, kv := range attrs {
-		fmt.Printf("    - %s: %s\n", string(kv.Key), attrValueToString(kv.Value))
+		key := string(kv.Key)
+		val := attrValueToString(kv.Value)
+		fmt.Printf("    - %s: %s\n", key, common.FormatSensitiveValue(key, val))
 	}
 	// Also include any runtime-added attributes (e.g., time-bound markers) that may not be in attrs
 	for _, kv := range dataAttrs {
@@ -444,12 +447,14 @@ func (w worker) printLogDetails(cfg *Config, data *logData, attrs []attribute.Ke
 			}
 		}
 		if !dup {
-			fmt.Printf("    - %s: %s\n", k, v)
+			fmt.Printf("    - %s: %s\n", k, common.FormatSensitiveValue(k, v))
 		}
 	}
 	fmt.Println("  Resource Attributes:")
 	for _, kv := range res.Attributes() {
-		fmt.Printf("    - %s: %s\n\n", string(kv.Key), attrValueToString(kv.Value))
+		key := string(kv.Key)
+		val := attrValueToString(kv.Value)
+		fmt.Printf("    - %s: %s\n", key, common.FormatSensitiveValue(key, val))
 	}
 	fmt.Println("--------------------------------------------------")
 }
@@ -467,7 +472,7 @@ func attrValueToString(v attribute.Value) string {
 	case attribute.FLOAT64:
 		return fmt.Sprintf("%g", v.AsFloat64())
 	case attribute.STRING:
-		return v.AsString()
+		return strings.TrimSpace(v.AsString())
 	default:
 		return fmt.Sprintf("%v", v)
 	}

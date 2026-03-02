@@ -68,49 +68,63 @@ func Start(cfg *Config, logger *zap.Logger) error {
 		return err
 	}
 
-	var exporter sdklog.Exporter
-	// Root context canceled on SIGINT/SIGTERM
-	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	// Exporter creation bounded by timeout and signal-aware
-	expCtx, cancel := context.WithTimeout(rootCtx, 1*time.Minute)
-	defer cancel()
-
-	deadline := time.Now().Add(1 * time.Minute)
-	backoffDelay := 500 * time.Millisecond
-	maxDelay := 10 * time.Second
-	for {
-		var err error
-		exporter, err = createExporter(cfg, logger)
-		if err == nil {
-			break
-		}
-		if time.Now().After(deadline) || expCtx.Err() != nil {
-			logger.Error("giving up creating logs exporter", zap.Error(err))
-			return err
-		}
-		logger.Warn("failed to create logs exporter, will retry", zap.Error(err), zap.Duration("next_backoff", backoffDelay))
-		select {
-		case <-time.After(backoffDelay):
-			backoffDelay *= 2
-			if backoffDelay > maxDelay {
-				backoffDelay = maxDelay
-			}
-		case <-expCtx.Done():
-			logger.Error("canceled while creating logs exporter", zap.Error(expCtx.Err()))
-			return expCtx.Err()
+	noExport := !cfg.IsEndpointReachable()
+	if noExport {
+		logger.Info("no collector reachable, skipping export", zap.String("endpoint", cfg.Endpoint()))
+		if cfg.TerminalOutput {
+			fmt.Printf("No collector at %s — skipping export\n", cfg.Endpoint())
 		}
 	}
 
-	// Ensure exporter is shut down once after generation completes
-	defer func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		logger.Info("stopping the exporter")
-		if tempError := exporter.Shutdown(shutdownCtx); tempError != nil {
-			logger.Error("failed to stop the exporter", zap.Error(tempError))
+	var exporter sdklog.Exporter
+
+	if noExport {
+		exporter = &noopLogExporter{}
+	} else {
+		// Root context canceled on SIGINT/SIGTERM — scoped for exporter creation retry
+		expCtx, expCancel := context.WithTimeout(context.Background(), 1*time.Minute)
+		defer expCancel()
+
+		deadline := time.Now().Add(1 * time.Minute)
+		backoffDelay := 500 * time.Millisecond
+		maxDelay := 10 * time.Second
+		for {
+			var err error
+			exporter, err = createExporter(cfg, logger)
+			if err == nil {
+				break
+			}
+			if time.Now().After(deadline) || expCtx.Err() != nil {
+				logger.Error("giving up creating logs exporter", zap.Error(err))
+				return err
+			}
+			logger.Warn("failed to create logs exporter, will retry", zap.Error(err), zap.Duration("next_backoff", backoffDelay))
+			select {
+			case <-time.After(backoffDelay):
+				backoffDelay *= 2
+				if backoffDelay > maxDelay {
+					backoffDelay = maxDelay
+				}
+			case <-expCtx.Done():
+				logger.Error("canceled while creating logs exporter", zap.Error(expCtx.Err()))
+				return expCtx.Err()
+			}
 		}
-	}()
+
+		// Ensure exporter is shut down once after generation completes
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			logger.Info("stopping the exporter")
+			if tempError := exporter.Shutdown(shutdownCtx); tempError != nil {
+				logger.Error("failed to stop the exporter", zap.Error(tempError))
+			}
+		}()
+	}
+
+	// Root context canceled on SIGINT/SIGTERM
+	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	logger.Info("starting the logs generator with configuration", zap.Any("config", cfg))
 	if cfg.TerminalOutput {
@@ -215,7 +229,10 @@ func run(rootCtx context.Context, c *Config, exporter sdklog.Exporter, logger *z
 	}
 
 	if c.TotalDuration > 0 {
-		time.Sleep(c.TotalDuration)
+		select {
+		case <-time.After(c.TotalDuration):
+		case <-rootCtx.Done():
+		}
 		running.Store(false)
 	}
 	wg.Wait()
@@ -224,6 +241,14 @@ func run(rootCtx context.Context, c *Config, exporter sdklog.Exporter, logger *z
 
 	return nil
 }
+
+// noopLogExporter discards all records. Used when no collector is
+// reachable so the existing run() logic still drives generation.
+type noopLogExporter struct{}
+
+func (n *noopLogExporter) Export(_ context.Context, _ []sdklog.Record) error { return nil }
+func (n *noopLogExporter) Shutdown(_ context.Context) error                  { return nil }
+func (n *noopLogExporter) ForceFlush(_ context.Context) error                { return nil }
 
 func createExporter(cfg *Config, logger *zap.Logger) (sdklog.Exporter, error) {
 	var exp sdklog.Exporter

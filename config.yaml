@@ -92,7 +92,7 @@ telemetry-attributes:
   session.id: "{{UUID}}"
 
 # Sensitive data markers (keys that contain sensitive information)
-sensitive-data: [patient.ssn, patient.dob, patient.mrn, host.ip, credit.card.number]  # Sensitive attribute/header keys (list) (default: [])
+sensitive-data: [patient.ssn, patient.name, patient.dob, patient.mrn, host.ip, credit.card.number]  # Sensitive attribute/header keys (list) (default: [])
 
 # =============================================================================
 # SUBCOMMAND-SPECIFIC CONFIGURATIONS

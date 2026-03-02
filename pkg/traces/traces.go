@@ -72,62 +72,82 @@ func Start(cfg *Config, logger *zap.Logger) error {
 		return err
 	}
 
-	var exp *otlptrace.Exporter
-	// Root context canceled on SIGINT/SIGTERM
-	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	// Exporter creation bounded by timeout and signal-aware
-	ctx, cancel := context.WithTimeout(rootCtx, 1*time.Minute)
-	defer cancel()
-
-	deadline := time.Now().Add(1 * time.Minute)
-	backoffDelay := 500 * time.Millisecond
-	maxDelay := 10 * time.Second
-	for {
-		var err error
-		if cfg.UseHTTP {
-			var exporterOpts []otlptracehttp.Option
-			logger.Info("starting HTTP exporter")
-			exporterOpts, err = httpExporterOptions(cfg)
-			if err == nil {
-				exp, err = otlptracehttp.New(context.Background(), exporterOpts...)
-			}
-		} else {
-			var exporterOpts []otlptracegrpc.Option
-			logger.Info("starting gRPC exporter")
-			exporterOpts, err = grpcExporterOptions(cfg)
-			if err == nil {
-				exp, err = otlptracegrpc.New(context.Background(), exporterOpts...)
-			}
-		}
-		if err == nil {
-			break
-		}
-
-		if time.Now().After(deadline) || ctx.Err() != nil {
-			logger.Error("giving up creating trace exporter", zap.Error(err))
-			return err
-		}
-		logger.Warn("failed to create trace exporter, will retry", zap.Error(err), zap.Duration("next_backoff", backoffDelay))
-		select {
-		case <-time.After(backoffDelay):
-			// increase delay with cap
-			backoffDelay *= 2
-			if backoffDelay > maxDelay {
-				backoffDelay = maxDelay
-			}
-		case <-ctx.Done():
-			logger.Error("canceled while creating trace exporter", zap.Error(ctx.Err()))
-			return ctx.Err()
+	noExport := !cfg.IsEndpointReachable()
+	if noExport {
+		logger.Info("no collector reachable, skipping export", zap.String("endpoint", cfg.Endpoint()))
+		if cfg.TerminalOutput {
+			fmt.Printf("No collector at %s — skipping export\n", cfg.Endpoint())
 		}
 	}
 
 	var ssp sdktrace.SpanProcessor
-	if cfg.Batch {
-		ssp = sdktrace.NewBatchSpanProcessor(exp, sdktrace.WithBatchTimeout(time.Second))
+
+	if noExport {
+		// Use a no-op span exporter so the full run() pipeline still executes
+		// (rate limiting, duration, mock data, terminal output) without network I/O
+		ssp = sdktrace.NewSimpleSpanProcessor(&noopSpanExporter{})
 	} else {
-		// For non-batch mode, use SimpleSpanProcessor to ensure immediate export
-		ssp = sdktrace.NewSimpleSpanProcessor(exp)
+		var exp *otlptrace.Exporter
+		// Exporter creation bounded by timeout and signal-aware
+		expCtx, expCancel := context.WithTimeout(context.Background(), 1*time.Minute)
+		defer expCancel()
+
+		deadline := time.Now().Add(1 * time.Minute)
+		backoffDelay := 500 * time.Millisecond
+		maxDelay := 10 * time.Second
+		for {
+			var err error
+			if cfg.UseHTTP {
+				var exporterOpts []otlptracehttp.Option
+				logger.Info("starting HTTP exporter")
+				exporterOpts, err = httpExporterOptions(cfg)
+				if err == nil {
+					exp, err = otlptracehttp.New(context.Background(), exporterOpts...)
+				}
+			} else {
+				var exporterOpts []otlptracegrpc.Option
+				logger.Info("starting gRPC exporter")
+				exporterOpts, err = grpcExporterOptions(cfg)
+				if err == nil {
+					exp, err = otlptracegrpc.New(context.Background(), exporterOpts...)
+				}
+			}
+			if err == nil {
+				break
+			}
+
+			if time.Now().After(deadline) || expCtx.Err() != nil {
+				logger.Error("giving up creating trace exporter", zap.Error(err))
+				return err
+			}
+			logger.Warn("failed to create trace exporter, will retry", zap.Error(err), zap.Duration("next_backoff", backoffDelay))
+			select {
+			case <-time.After(backoffDelay):
+				backoffDelay *= 2
+				if backoffDelay > maxDelay {
+					backoffDelay = maxDelay
+				}
+			case <-expCtx.Done():
+				logger.Error("canceled while creating trace exporter", zap.Error(expCtx.Err()))
+				return expCtx.Err()
+			}
+		}
+
+		if cfg.Batch {
+			ssp = sdktrace.NewBatchSpanProcessor(exp, sdktrace.WithBatchTimeout(time.Second))
+		} else {
+			ssp = sdktrace.NewSimpleSpanProcessor(exp)
+		}
+
+		// Ensure exporter is shut down after generation completes
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			logger.Info("stopping the exporter")
+			if tempError := exp.Shutdown(shutdownCtx); tempError != nil {
+				logger.Error("failed to stop the exporter", zap.Error(tempError))
+			}
+		}()
 	}
 
 	attrs, err := cfg.GetResourceAttrWithMockMarker()
@@ -150,7 +170,7 @@ func Start(cfg *Config, logger *zap.Logger) error {
 
 	otel.SetTracerProvider(tracerProvider)
 
-	// Centralized, ordered shutdown: provider first (flush processors), then exporter
+	// Shutdown tracer provider after generation completes
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -158,11 +178,11 @@ func Start(cfg *Config, logger *zap.Logger) error {
 		if tempError := tracerProvider.Shutdown(shutdownCtx); tempError != nil {
 			logger.Error("failed to shutdown tracer provider", zap.Error(tempError))
 		}
-		logger.Info("stopping the exporter")
-		if tempError := exp.Shutdown(shutdownCtx); tempError != nil {
-			logger.Error("failed to stop the exporter", zap.Error(tempError))
-		}
 	}()
+
+	// Root context canceled on SIGINT/SIGTERM
+	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	if cfg.TerminalOutput {
 		fmt.Println("Starting traces generator")
@@ -175,7 +195,6 @@ func Start(cfg *Config, logger *zap.Logger) error {
 	}
 
 	logger.Info("traces generation completed, returning from Start function")
-	logger.Info("about to return from Start function, defer functions should be called")
 	return nil
 }
 
@@ -277,7 +296,10 @@ func runEnhanced(ctx context.Context, c *Config, logger *zap.Logger, limit rate.
 	}
 
 	if c.TotalDuration > 0 {
-		time.Sleep(c.TotalDuration)
+		select {
+		case <-time.After(c.TotalDuration):
+		case <-ctx.Done():
+		}
 		running.Store(false)
 	}
 	wg.Wait()
@@ -380,7 +402,10 @@ func runLegacy(ctx context.Context, c *Config, logger *zap.Logger, limit rate.Li
 	}
 
 	if c.TotalDuration > 0 {
-		time.Sleep(c.TotalDuration)
+		select {
+		case <-time.After(c.TotalDuration):
+		case <-ctx.Done():
+		}
 		running.Store(false)
 	}
 
@@ -391,3 +416,12 @@ func runLegacy(ctx context.Context, c *Config, logger *zap.Logger, limit rate.Li
 	logger.Info("final count", zap.Int64("traces_generated", atomic.LoadInt64(&totalTraces)))
 	return nil
 }
+
+// noopSpanExporter discards all spans. Used when no collector is
+// reachable so the existing run() logic still drives generation.
+type noopSpanExporter struct{}
+
+func (n *noopSpanExporter) ExportSpans(_ context.Context, _ []sdktrace.ReadOnlySpan) error {
+	return nil
+}
+func (n *noopSpanExporter) Shutdown(_ context.Context) error { return nil }
