@@ -1,0 +1,6 @@
+version: v1.19.0
+ignore:
+  'SNYK-GOLANG-GITHUBCOMGRPCECOSYSTEMGRPCGATEWAYV2RUNTIME-19432132':
+    - '*':
+        reason: Client-only OTLP exporter; this CLI does not construct grpc-gateway ServeMux or serve inbound HTTP. No fixed release is available; review before expiry.
+        expires: 2027-01-16T00:00:00.000Z
