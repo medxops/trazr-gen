@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"sync"
 	"testing"
 
@@ -18,9 +19,10 @@ func TestStartExportsRequestedMetrics(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		metricType MetricType
+		wantType   string
 	}{
-		{name: "gauge", metricType: MetricTypeGauge},
-		{name: "sum", metricType: MetricTypeSum},
+		{name: "gauge", metricType: MetricTypeGauge, wantType: "Gauge"},
+		{name: "sum", metricType: MetricTypeSum, wantType: "Sum"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var mu sync.Mutex
@@ -78,10 +80,26 @@ func TestStartExportsRequestedMetrics(t *testing.T) {
 			cfg.NumMetrics = 3
 			cfg.MetricName = "test_metric"
 			cfg.MetricType = tc.metricType
-			cfg.TerminalOutput = false
-			cfg.PrintDetails = false
+			cfg.TerminalOutput = true
+			cfg.PrintDetails = true
 			cfg.ShowProgressCounter = false
+			read, write, err := os.Pipe()
+			require.NoError(t, err)
+			originalStdout := os.Stdout
+			os.Stdout = write
+			defer func() {
+				os.Stdout = originalStdout
+				_ = write.Close()
+				_ = read.Close()
+			}()
 			require.NoError(t, Start(cfg, zap.NewNop()))
+			require.NoError(t, write.Close())
+			os.Stdout = originalStdout
+			output, err := io.ReadAll(read)
+			require.NoError(t, err)
+			require.Contains(t, string(output), "Generated Metric Record:")
+			require.Contains(t, string(output), "Name: test_metric")
+			require.Contains(t, string(output), "Type: "+tc.wantType)
 
 			mu.Lock()
 			defer mu.Unlock()
