@@ -23,11 +23,29 @@ func InitMockData(seed int64) {
 	fakerMutex.Lock()
 	if seed == 0 {
 		// Mask to ensure positive value, safe for gofakeit.New
-		fakerInstance = gofakeit.New(uint64(time.Now().UnixNano() & 0x7FFFFFFFFFFFFFFF)) //nolint:gosec // masking ensures safe conversion
+		fakerInstance = gofakeit.New(uint64(time.Now().UnixNano() & 0x7FFFFFFFFFFFFFFF))
 	} else {
-		fakerInstance = gofakeit.New(uint64(seed & 0x7FFFFFFFFFFFFFFF)) //nolint:gosec // masking ensures safe conversion
+		fakerInstance = gofakeit.New(uint64(seed & 0x7FFFFFFFFFFFFFFF))
 	}
 	fakerMutex.Unlock()
+}
+
+// InitGlobalSeed initializes both math/rand/v2 and gofakeit with the same seed for reproducible generation.
+// This ensures that both trace generation and mock data use the same random sequence.
+// Call this once at startup if you need reproducible output for a specific test run.
+func InitGlobalSeed(seed int64) {
+	if seed == 0 {
+		// Use current time for random seed
+		seed = time.Now().UnixNano()
+	}
+
+	// Note: In math/rand/v2, the global random source is automatically seeded
+	// and we cannot directly set the global seed. However, the gofakeit initialization
+	// will ensure reproducible mock data generation.
+	// For trace generation, the individual packages will need to use seeded sources.
+
+	// Initialize gofakeit with the same seed
+	InitMockData(seed)
 }
 
 // ReshuffleMockData generates a new seed based on the current time,
@@ -35,7 +53,7 @@ func InitMockData(seed int64) {
 // of random data for subsequent template calls.
 func ReshuffleMockData() {
 	fakerMutex.Lock()
-	fakerInstance = gofakeit.New(uint64(time.Now().UnixNano() & 0x7FFFFFFFFFFFFFFF)) //nolint:gosec // masking ensures safe conversion
+	fakerInstance = gofakeit.New(uint64(time.Now().UnixNano() & 0x7FFFFFFFFFFFFFFF))
 	fakerMutex.Unlock()
 }
 

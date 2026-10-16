@@ -4,9 +4,6 @@
 package common
 
 import (
-	"bytes"
-	"os"
-	"reflect"
 	"testing"
 	"time"
 
@@ -181,41 +178,6 @@ func TestFlattenMap(t *testing.T) {
 	}
 }
 
-func TestValuesEqual(t *testing.T) {
-	a := reflect.ValueOf([]int{1, 2, 3})
-	b := reflect.ValueOf([]int{1, 2, 3})
-	if !valuesEqual(a, b) {
-		t.Error("valuesEqual should return true for equal slices")
-	}
-	b = reflect.ValueOf([]int{1, 2})
-	if valuesEqual(a, b) {
-		t.Error("valuesEqual should return false for different slices")
-	}
-	m1 := map[string]int{"a": 1}
-	m2 := map[string]int{"a": 1}
-	if !valuesEqual(reflect.ValueOf(m1), reflect.ValueOf(m2)) {
-		t.Error("valuesEqual should return true for equal maps")
-	}
-}
-
-func TestPrintable(t *testing.T) {
-	v := reflect.ValueOf(map[string]int{"a": 1})
-	p := printable(v)
-	if p == nil {
-		t.Error("printable should not return nil for map")
-	}
-	v = reflect.ValueOf([]int{1, 2})
-	p = printable(v)
-	if p == nil {
-		t.Error("printable should not return nil for slice")
-	}
-	v = reflect.ValueOf(nil)
-	p = printable(v)
-	if p != nil {
-		t.Error("printable(nil) should return nil")
-	}
-}
-
 func TestKeyValueSet_ErrorPaths(t *testing.T) {
 	kv := KeyValue{}
 	// Invalid JSON
@@ -288,9 +250,9 @@ func TestConfig_InitAttributes(t *testing.T) {
 		assert.Equal(t, "c", cfg.TelemetryAttributes["a.b"])
 		assert.Equal(t, "j", cfg.Headers["h.i"])
 		// Sensitive marker injected
-		_, ok := cfg.ResourceAttributes["trazr.sensitive.data"]
+		_, ok := cfg.ResourceAttributes["trazrgen.sensitive.data"]
 		assert.True(t, ok)
-		_, ok = cfg.TelemetryAttributes["trazr.sensitive.data"]
+		_, ok = cfg.TelemetryAttributes["trazrgen.sensitive.data"]
 		assert.True(t, ok)
 	})
 
@@ -301,44 +263,6 @@ func TestConfig_InitAttributes(t *testing.T) {
 		err := cfg.InitAttributes()
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unsupported attribute value type")
-	})
-}
-
-func TestShowNonDefaultConfig(t *testing.T) {
-	t.Run("prints only non-default fields", func(t *testing.T) {
-		cfg := &Config{}
-		cfg.SetDefaults()
-		cfg.WorkerCount = 42 // override default
-
-		r, w, _ := os.Pipe()
-		origStdout := os.Stdout
-		os.Stdout = w
-		ShowNonDefaultConfig(cfg)
-		w.Close()
-		os.Stdout = origStdout
-
-		var buf bytes.Buffer
-		_, _ = buf.ReadFrom(r)
-		output := buf.String()
-		assert.Contains(t, output, "WorkerCount: 42 (default: 1)")
-		assert.Contains(t, output, "Overridden Config Values")
-	})
-
-	t.Run("prints nothing if all defaults", func(t *testing.T) {
-		cfg := &Config{}
-		cfg.SetDefaults()
-
-		r, w, _ := os.Pipe()
-		origStdout := os.Stdout
-		os.Stdout = w
-		ShowNonDefaultConfig(cfg)
-		w.Close()
-		os.Stdout = origStdout
-
-		var buf bytes.Buffer
-		_, _ = buf.ReadFrom(r)
-		output := buf.String()
-		assert.Empty(t, output)
 	})
 }
 
@@ -419,40 +343,6 @@ func TestConfig_SetDefaults(t *testing.T) {
 	assert.False(t, cfg.ClientAuth.Enabled)
 	assert.Empty(t, cfg.ClientAuth.ClientCertFile)
 	assert.Empty(t, cfg.ClientAuth.ClientKeyFile)
-}
-
-func TestPrintableAndValuesEqual_EdgeCases(t *testing.T) {
-	// pointer to slice
-	slice := []int{1, 2, 3}
-	ptrSlice := &slice
-	v := reflect.ValueOf(ptrSlice)
-	p := printable(v)
-	assert.Equal(t, []any{1, 2, 3}, p)
-
-	// pointer to map
-	m := map[string]int{"a": 1}
-	ptrMap := &m
-	v = reflect.ValueOf(ptrMap)
-	p = printable(v)
-	assert.NotNil(t, p)
-
-	// nil interface
-	var iface any
-	v = reflect.ValueOf(iface)
-	p = printable(v)
-	assert.Nil(t, p)
-
-	// valuesEqual for pointer to slice
-	v1 := reflect.ValueOf(&[]int{1, 2})
-	v2 := reflect.ValueOf(&[]int{1, 2})
-	assert.True(t, valuesEqual(v1, v2))
-
-	// valuesEqual for pointer to map
-	m1 := map[string]int{"a": 1}
-	m2 := map[string]int{"a": 1}
-	v1 = reflect.ValueOf(&m1)
-	v2 = reflect.ValueOf(&m2)
-	assert.True(t, valuesEqual(v1, v2))
 }
 
 func TestConfig_CommonFlags(t *testing.T) {

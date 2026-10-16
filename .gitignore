@@ -215,8 +215,11 @@ codeql-db/*
 codeql-results.sarif
 coverage.txt
 testdata/*
+claude.md
 
 .secrets
 private.key
 private.key.b64
 private.key.oneline
+codereview.md
+go.sum

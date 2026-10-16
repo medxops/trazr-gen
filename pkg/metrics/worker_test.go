@@ -82,7 +82,9 @@ func TestFixedNumberOfMetrics(t *testing.T) {
 
 	// act
 	logger, _ := zap.NewDevelopment()
-	require.NoError(t, run(cfg, m, logger))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, run(ctx, cfg, m, logger))
 	time.Sleep(1 * time.Second)
 
 	// assert
@@ -102,7 +104,9 @@ func TestRateOfMetrics(t *testing.T) {
 	m := &mockExporter{}
 
 	// act
-	require.NoError(t, run(cfg, m, zap.NewNop()))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, run(ctx, cfg, m, zap.NewNop()))
 
 	// assert
 	// the minimum acceptable number of metrics for the rate of 10/sec for half a second
@@ -160,7 +164,9 @@ func TestMetricsWithTemporality(t *testing.T) {
 
 			// act
 			logger, _ := zap.NewDevelopment()
-			require.NoError(t, run(cfg, m, logger))
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			require.NoError(t, run(ctx, cfg, m, logger))
 
 			time.Sleep(1 * time.Second)
 
@@ -187,7 +193,9 @@ func TestUnthrottled(t *testing.T) {
 
 	// act
 	logger, _ := zap.NewDevelopment()
-	require.NoError(t, run(cfg, m, logger))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, run(ctx, cfg, m, logger))
 
 	// assert
 	assert.Greater(t, len(m.rms), 100, "there should have been more than 100 metrics, had %d", len(m.rms))
@@ -201,7 +209,9 @@ func TestSumNoTelemetryAttrs(t *testing.T) {
 
 	// act
 	logger, _ := zap.NewDevelopment()
-	require.NoError(t, run(cfg, m, logger))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, run(ctx, cfg, m, logger))
 
 	time.Sleep(1 * time.Second)
 
@@ -226,7 +236,9 @@ func TestGaugeNoTelemetryAttrs(t *testing.T) {
 
 	// act
 	logger, _ := zap.NewDevelopment()
-	require.NoError(t, run(cfg, m, logger))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, run(ctx, cfg, m, logger))
 
 	time.Sleep(1 * time.Second)
 
@@ -251,7 +263,9 @@ func TestSumSingleTelemetryAttr(t *testing.T) {
 
 	// act
 	logger, _ := zap.NewDevelopment()
-	require.NoError(t, run(cfg, m, logger))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, run(ctx, cfg, m, logger))
 
 	time.Sleep(1 * time.Second)
 
@@ -278,7 +292,9 @@ func TestGaugeSingleTelemetryAttr(t *testing.T) {
 
 	// act
 	logger, _ := zap.NewDevelopment()
-	require.NoError(t, run(cfg, m, logger))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, run(ctx, cfg, m, logger))
 
 	time.Sleep(1 * time.Second)
 
@@ -305,7 +321,9 @@ func TestSumMultipleTelemetryAttr(t *testing.T) {
 
 	// act
 	logger, _ := zap.NewDevelopment()
-	require.NoError(t, run(cfg, m, logger))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, run(ctx, cfg, m, logger))
 
 	time.Sleep(1 * time.Second)
 
@@ -334,7 +352,9 @@ func TestGaugeMultipleTelemetryAttr(t *testing.T) {
 
 	// act
 	logger, _ := zap.NewDevelopment()
-	require.NoError(t, run(cfg, m, logger))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, run(ctx, cfg, m, logger))
 
 	time.Sleep(1 * time.Second)
 
@@ -402,7 +422,9 @@ func TestValidate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			m := &mockExporter{}
 			logger, _ := zap.NewDevelopment()
-			require.EqualError(t, run(tt.cfg, m, logger), tt.wantErrMessage)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			require.EqualError(t, run(ctx, tt.cfg, m, logger), tt.wantErrMessage)
 		})
 	}
 }
@@ -499,7 +521,7 @@ func TestTemporalityStartTimes(t *testing.T) {
 			}
 
 			cfg := &Config{}
-			w.simulateMetrics(resource.Default(), m, cfg)
+			w.simulateMetrics(context.Background(), resource.Default(), m, cfg)
 
 			wg.Wait()
 

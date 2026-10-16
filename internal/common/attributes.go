@@ -8,7 +8,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 )
 
-// ProcessMockMarkers expands gofakeit/mock templates in attrs (if mockData is true), type-detects values, and appends a trazr.mock.data marker if any mock keys.
+// ProcessMockMarkers expands gofakeit/mock templates in attrs (if mockData is true), type-detects values, and appends a trazrgen.mock.data marker if any mock keys.
 // It does NOT perform key injection; it operates on the raw attribute values.
 func ProcessMockMarkers(attrs map[string]any) ([]attribute.KeyValue, error) {
 	var result []attribute.KeyValue
@@ -51,9 +51,8 @@ func ProcessMockMarkers(attrs map[string]any) ([]attribute.KeyValue, error) {
 			result = append(result, attribute.Int(k, v))
 		}
 	}
-	fmt.Println("RESULT:", result)
 	if len(mockKeys) > 0 {
-		result = append(result, attribute.String("trazr.mock.data", strings.Join(mockKeys, ",")))
+		result = append(result, attribute.String("trazrgen.mock.data", strings.Join(mockKeys, ",")))
 	}
 	return result, nil
 }
@@ -77,7 +76,8 @@ func attributesFromMap(attrs map[string]any) []attribute.KeyValue {
 // GetResourceAttrWithMockMarker returns resource attributes as OpenTelemetry KeyValue pairs, including:
 // - service.name
 // - all resource attributes
-// - trazr.mock.data (keys with mock data templates)
+// - trazrgen.mock.data (keys with mock data templates)
+// - trazrgen.random.seed (the random seed used for generation)
 // Note: logBody is not relevant for resource attributes, so pass "".
 func (c *Config) GetResourceAttrWithMockMarker() ([]attribute.KeyValue, error) {
 	var attrs []attribute.KeyValue
@@ -101,12 +101,24 @@ func (c *Config) GetResourceAttrWithMockMarker() ([]attribute.KeyValue, error) {
 	if !found && c.ServiceName != "" {
 		attrs = append(attrs, attribute.String("service.name", c.ServiceName))
 	}
+
+	// Add the random seed used for generation
+	seedValue := c.MockSeed
+	if seedValue == 0 {
+		// If seed is 0, it means we used a timestamp-based seed
+		// We'll indicate this with a special value
+		attrs = append(attrs, attribute.String("trazrgen.random.seed", "timestamp-based"))
+	} else {
+		// Use the actual seed value
+		attrs = append(attrs, attribute.Int64("trazrgen.random.seed", seedValue))
+	}
+
 	return attrs, nil
 }
 
 // GetTelemetryAttrWithMockMarker returns telemetry attributes as OpenTelemetry KeyValue pairs, including:
 // - all telemetry attributes
-// - trazr.mock.data (keys with mock data templates)
+// - trazrgen.mock.data (keys with mock data templates)
 // Note: logBody is not relevant for telemetry attributes, so pass "".
 func (c *Config) GetTelemetryAttrWithMockMarker() ([]attribute.KeyValue, error) {
 	if c.MockData {
@@ -144,7 +156,7 @@ func (c *Config) GetHeadersWithMockMarker() (map[string]string, error) {
 	return result, nil
 }
 
-// InjectSensitiveDataMarker adds the 'trazr.sensitive.data' key to attrs if any sensitive keys are present.
+// InjectSensitiveDataMarker adds the 'trazrgen.sensitive.data' key to attrs if any sensitive keys are present.
 // Call this once at startup after config and attributes are loaded.
 func InjectSensitiveDataMarker(attrs map[string]any, sensitiveKeys []string) {
 	var present []string
@@ -154,7 +166,7 @@ func InjectSensitiveDataMarker(attrs map[string]any, sensitiveKeys []string) {
 		}
 	}
 	if len(present) > 0 {
-		attrs["trazr.sensitive.data"] = strings.Join(present, ",")
+		attrs["trazrgen.sensitive.data"] = strings.Join(present, ",")
 	}
 }
 

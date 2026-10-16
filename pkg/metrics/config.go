@@ -22,6 +22,8 @@ type Config struct {
 	AggregationTemporality AggregationTemporality `mapstructure:"aggregation-temporality"`
 	SpanID                 string                 `mapstructure:"span-id"`
 	TraceID                string                 `mapstructure:"trace-id"`
+	PrintDetails           bool                   `mapstructure:"print-details"`         // Print detailed record output to terminal for each item
+	ShowProgressCounter    bool                   `mapstructure:"show-progress-counter"` // Show progress counter (Metrics generated: X) for each metric
 }
 
 // NewConfig creates a new Config with default values.
@@ -44,6 +46,8 @@ func (c *Config) Flags(fs *pflag.FlagSet) {
 
 	fs.Var(&c.MetricType, "metric-type", "Metric type enum. must be one of 'Gauge' or 'Sum'")
 	fs.Var(&c.AggregationTemporality, "aggregation-temporality", "aggregation-temporality for metrics. Must be one of 'delta' or 'cumulative'")
+	fs.BoolVar(&c.PrintDetails, "print-details", c.PrintDetails, "Print detailed record output to terminal for each item (default: true)")
+	fs.BoolVar(&c.ShowProgressCounter, "show-progress-counter", c.ShowProgressCounter, "Show progress counter (Metrics generated: X) for each metric (default: true)")
 }
 
 // SetDefaults sets the default values for the configuration
@@ -62,6 +66,8 @@ func (c *Config) SetDefaults() {
 
 	c.TraceID = ""
 	c.SpanID = ""
+	c.PrintDetails = true
+	c.ShowProgressCounter = true
 }
 
 // Validate validates the test scenario parameters.

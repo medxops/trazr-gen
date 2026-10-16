@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"reflect"
+	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -138,7 +138,7 @@ type Config struct {
 	UseHTTP             bool     `mapstructure:"otlp-http"`
 	HTTPPath            string   `mapstructure:"otlp-http-url-path"`
 	Headers             KeyValue `mapstructure:"otlp-header"`
-	ResourceAttributes  KeyValue `mapstructure:"otlp-attributes"`
+	ResourceAttributes  KeyValue `mapstructure:"resource-attributes"`
 	ServiceName         string   `mapstructure:"service"`
 	TelemetryAttributes KeyValue `mapstructure:"telemetry-attributes"`
 
@@ -176,6 +176,16 @@ func (c *Config) Endpoint() string {
 	return defaultGRPCEndpoint
 }
 
+// IsEndpointReachable checks if the OTLP collector endpoint is reachable via TCP.
+func (c *Config) IsEndpointReachable() bool {
+	conn, err := net.DialTimeout("tcp", c.Endpoint(), 2*time.Second)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
+}
+
 // CommonFlags registers common config flags.
 func (c *Config) CommonFlags(fs *pflag.FlagSet) {
 	fs.IntVar(&c.WorkerCount, "workers", c.WorkerCount, "Number of workers (goroutines) to run")
@@ -194,7 +204,8 @@ func (c *Config) CommonFlags(fs *pflag.FlagSet) {
 	fs.Var(&c.Headers, "otlp-header", "Custom OTLP header (key=\"value\"). Repeat for multiple headers.")
 
 	// custom resource attributes
-	fs.Var(&c.ResourceAttributes, "otlp-attributes", "Custom telemetry attribute (key=\"value\"). Repeat for multiple attributes.")
+	fs.Var(&c.ResourceAttributes, "resource-attributes", "Custom resource attribute (key=\"value\"). Repeat for multiple attributes. These are global metadata for all telemetry from this service.")
+	fs.Var(&c.ResourceAttributes, "otlp-attributes", "DEPRECATED: Use --resource-attributes instead. Custom resource attribute (key=\"value\"). Repeat for multiple attributes.")
 
 	fs.Var(&c.TelemetryAttributes, "telemetry-attributes", "Custom telemetry attribute (key=\"value\"). Repeat for multiple attributes.")
 
@@ -287,7 +298,7 @@ func FlattenMap(prefix string, in map[string]any, out map[string]any) error {
 	return nil
 }
 
-// InitAttributes performs one-time initialization of attribute maps, including adding the 'trazr.sensitive.data' key to both ResourceAttributes and TelemetryAttributes if any sensitive keys are present.
+// InitAttributes performs one-time initialization of attribute maps, including adding the 'trazrgen.sensitive.data' key to both ResourceAttributes and TelemetryAttributes if any sensitive keys are present.
 // Call this once after config and attributes are loaded.
 func (c *Config) InitAttributes() error {
 	flatRes := make(map[string]any)
@@ -310,137 +321,9 @@ func (c *Config) InitAttributes() error {
 
 	InjectSensitiveDataMarker(c.ResourceAttributes, c.SensitiveData)
 	InjectSensitiveDataMarker(c.TelemetryAttributes, c.SensitiveData)
+
+	// Populate the sensitive keys set for terminal output highlighting
+	SetSensitiveKeys(c.SensitiveData)
+
 	return nil
-}
-
-// ShowNonDefaultConfig prints all config fields that differ from their default values.
-// It works for any config struct (logs, metrics, traces, or common) that has a SetDefaults() method.
-// Fields that are not set to their default values are printed as: <field path>: <value> (default: <default value>)
-// Output is sent to the provided UserOutput.
-// Returns true if at least one value differs from default, false otherwise.
-func ShowNonDefaultConfig(cfg any) {
-	cfgVal := reflect.ValueOf(cfg)
-	if cfgVal.Kind() == reflect.Ptr {
-		cfgVal = cfgVal.Elem()
-	}
-	cfgType := cfgVal.Type()
-
-	// Create a new zero value and set defaults
-	defaultPtr := reflect.New(cfgType)
-	setDefaults := defaultPtr.MethodByName("SetDefaults")
-	if setDefaults.IsValid() {
-		setDefaults.Call(nil)
-	}
-	defaultVal := defaultPtr.Elem()
-
-	var found bool
-	var walk func(path string, v, def reflect.Value)
-	walk = func(path string, v, def reflect.Value) {
-		t := v.Type()
-		for i := 0; i < v.NumField(); i++ {
-			f := t.Field(i)
-			fname := f.Name
-			if f.Anonymous && v.Field(i).Kind() == reflect.Struct {
-				// Embedded struct: recurse with path
-				walk(path, v.Field(i), def.Field(i))
-				continue
-			}
-			fieldPath := fname
-			if path != "" {
-				fieldPath = path + "." + fname
-			}
-			val := v.Field(i)
-			defVal := def.Field(i)
-			if !valuesEqual(val, defVal) {
-				if !found {
-					fmt.Println("----------------- Overridden Config Values -----------------")
-					found = true
-				}
-				fmt.Printf("%s: %v (default: %v)\n", fieldPath, printable(val), printable(defVal))
-			}
-		}
-	}
-	walk("", cfgVal, defaultVal)
-	if found {
-		fmt.Println("------------------------------------------------------------")
-	}
-}
-
-// valuesEqual compares two reflect.Values for equality, handling slices, maps, and basic types.
-func valuesEqual(a, b reflect.Value) bool {
-	if !a.IsValid() || !b.IsValid() {
-		return a.IsValid() == b.IsValid()
-	}
-	if a.Type() != b.Type() {
-		return false
-	}
-	switch a.Kind() {
-	case reflect.Slice:
-		if a.IsNil() && b.IsNil() {
-			return true
-		}
-		if a.Len() != b.Len() {
-			return false
-		}
-		for i := 0; i < a.Len(); i++ {
-			if !valuesEqual(a.Index(i), b.Index(i)) {
-				return false
-			}
-		}
-		return true
-	case reflect.Map:
-		if a.IsNil() && b.IsNil() {
-			return true
-		}
-		if a.Len() != b.Len() {
-			return false
-		}
-		for _, k := range a.MapKeys() {
-			av := a.MapIndex(k)
-			bv := b.MapIndex(k)
-			if !bv.IsValid() || !valuesEqual(av, bv) {
-				return false
-			}
-		}
-		return true
-	case reflect.Struct:
-		for i := 0; i < a.NumField(); i++ {
-			if !valuesEqual(a.Field(i), b.Field(i)) {
-				return false
-			}
-		}
-		return true
-	default:
-		return reflect.DeepEqual(a.Interface(), b.Interface())
-	}
-}
-
-// printable returns a value suitable for printing (dereferencing pointers, formatting slices/maps).
-func printable(v reflect.Value) any {
-	if !v.IsValid() {
-		return nil
-	}
-	switch v.Kind() {
-	case reflect.Ptr:
-		if v.IsNil() {
-			return nil
-		}
-		return printable(v.Elem())
-	case reflect.Slice:
-		var out []any
-		for i := 0; i < v.Len(); i++ {
-			out = append(out, printable(v.Index(i)))
-		}
-		return out
-	case reflect.Map:
-		m := make(map[any]any, v.Len())
-		for _, k := range v.MapKeys() {
-			m[printable(k)] = printable(v.MapIndex(k))
-		}
-		return m
-	case reflect.Struct:
-		return fmt.Sprintf("%v", v.Interface())
-	default:
-		return v.Interface()
-	}
 }

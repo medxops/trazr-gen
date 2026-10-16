@@ -19,6 +19,8 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"golang.org/x/time/rate"
+
+	"github.com/medxops/trazr-gen/internal/common"
 )
 
 type worker struct {
@@ -50,16 +52,57 @@ func (w worker) reportProgressf(format string, args ...any) {
 	}
 }
 
-func (w worker) simulateTraces(cfg *Config) {
+// printSpanDebug prints detailed debug output for a span, its attributes, and resource attributes.
+func printSpanDebug(label, name, parentSpanID string, kind trace.SpanKind, spanCtx trace.SpanContext, status codes.Code, start, end time.Time, attrs []attribute.KeyValue, resAttrs []attribute.KeyValue) {
+	traceID := spanCtx.TraceID().String()
+	if traceID == "00000000000000000000000000000000" || traceID == "" {
+		traceID = "-"
+	}
+	spanID := spanCtx.SpanID().String()
+	if spanID == "0000000000000000" || spanID == "" {
+		spanID = "-"
+	}
+	if parentSpanID == "0000000000000000" || parentSpanID == "" {
+		parentSpanID = "-"
+	}
+	fmt.Printf("Generated Trace Record%s:\n", label)
+	fmt.Printf("  Name: %s\n", name)
+	fmt.Printf("  Kind: %s\n", kind.String())
+	fmt.Printf("  TraceID: %s\n", traceID)
+	fmt.Printf("  SpanID: %s\n", spanID)
+	fmt.Printf("  ParentSpanID: %s\n", parentSpanID)
+	fmt.Printf("  Status: %s\n", status.String())
+	fmt.Printf("  Start: %s\n", start.Format(time.RFC3339Nano))
+	fmt.Printf("  End:   %s\n", end.Format(time.RFC3339Nano))
+	fmt.Println("  Attributes:")
+	for _, attr := range attrs {
+		key := string(attr.Key)
+		val := common.FormatAttrValue(attr.Value.AsInterface())
+		fmt.Printf("    - %s: %s\n", key, common.FormatSensitiveValue(key, val))
+	}
+	fmt.Println("  Resource Attributes:")
+	for _, attr := range resAttrs {
+		key := string(attr.Key)
+		val := common.FormatAttrValue(attr.Value.AsInterface())
+		fmt.Printf("    - %s: %s\n", key, common.FormatSensitiveValue(key, val))
+	}
+	fmt.Println("--------------------------------------------------")
+}
+
+func (w worker) simulateTraces(ctx context.Context, cfg *Config) {
 	tracer := otel.Tracer("trazr-gen")
 	limiter := rate.NewLimiter(w.limitPerSecond, 1)
 	var i int
 
-	for w.running.Load() {
+	for w.running.Load() && ctx.Err() == nil {
 		spanStart := time.Now()
 		spanEnd := spanStart.Add(w.spanDuration)
 
-		if err := limiter.Wait(context.Background()); err != nil {
+		if err := limiter.Wait(ctx); err != nil {
+			if ctx.Err() != nil {
+				w.logger.Info("context cancelled during rate limiting, stopping")
+				break
+			}
 			w.reportProgressf("Limiter wait failed: %v", err)
 			w.logger.Fatal("limiter waited failed, retry", zap.Error(err))
 		}
@@ -69,10 +112,10 @@ func (w worker) simulateTraces(cfg *Config) {
 		if err != nil {
 			w.reportProgressf("Failed to process telemetry attributes: %v", err)
 			w.logger.Fatal("failed to process telemetry attributes", zap.Error(err))
-			break
 		}
 
-		ctx, sp := tracer.Start(context.Background(), "lets-go", trace.WithAttributes(
+		parentSpanName := "lets-go"
+		spanCtx, sp := tracer.Start(ctx, parentSpanName, trace.WithAttributes(
 			semconv.NetSockPeerAddr(fakeIP),
 			semconv.PeerService("trazr-gen-server"),
 		),
@@ -84,7 +127,7 @@ func (w worker) simulateTraces(cfg *Config) {
 			sp.SetAttributes(attribute.String(fmt.Sprintf("load-%v", j), string(make([]byte, charactersPerMB))))
 		}
 
-		childCtx := ctx
+		childCtx := spanCtx
 		if w.propagateContext {
 			header := propagation.HeaderCarrier{}
 			// simulates going remote
@@ -96,7 +139,11 @@ func (w worker) simulateTraces(cfg *Config) {
 		var endTimestamp trace.SpanEventOption
 
 		for j := 0; j < w.numChildSpans; j++ {
-			if err := limiter.Wait(context.Background()); err != nil {
+			if err := limiter.Wait(ctx); err != nil {
+				if ctx.Err() != nil {
+					w.logger.Info("context cancelled during rate limiting, stopping")
+					break
+				}
 				w.reportProgressf("Limiter wait failed: %v", err)
 				w.logger.Fatal("limiter waited failed, retry", zap.Error(err))
 			}
@@ -109,7 +156,9 @@ func (w worker) simulateTraces(cfg *Config) {
 				break
 			}
 
-			_, child := tracer.Start(childCtx, "okey-dokey-"+strconv.Itoa(j), trace.WithAttributes(
+			childSpanName := "okey-dokey-" + strconv.Itoa(j)
+			parentSpanID := sp.SpanContext().SpanID().String()
+			_, child := tracer.Start(childCtx, childSpanName, trace.WithAttributes(
 				semconv.NetSockPeerAddr(fakeIP),
 				semconv.PeerService("trazr-gen-client"),
 			),
@@ -122,6 +171,12 @@ func (w worker) simulateTraces(cfg *Config) {
 			child.SetStatus(w.statusCode, "")
 			child.End(endTimestamp)
 
+			if cfg.TerminalOutput && cfg.PrintDetails {
+				spanCtx := child.SpanContext()
+				resAttrs, _ := cfg.GetResourceAttrWithMockMarker()
+				printSpanDebug(" (Child Span)", childSpanName, parentSpanID, trace.SpanKindServer, spanCtx, w.statusCode, spanStart, spanEnd, childAttrs, resAttrs)
+			}
+
 			// Reset the start and end for next span
 			spanStart = spanEnd
 			spanEnd = spanStart.Add(w.spanDuration)
@@ -129,12 +184,23 @@ func (w worker) simulateTraces(cfg *Config) {
 		sp.SetStatus(w.statusCode, "")
 		sp.End(endTimestamp)
 
+		if cfg.TerminalOutput && cfg.PrintDetails {
+			spanCtx := sp.SpanContext()
+			resAttrs, _ := cfg.GetResourceAttrWithMockMarker()
+			printSpanDebug("", parentSpanName, "-", trace.SpanKindClient, spanCtx, w.statusCode, spanStart, spanEnd, telemetryAttrs, resAttrs)
+		}
+
 		i++
 		if w.tracesCounter != nil {
 			atomic.AddInt64(w.tracesCounter, 1)
 		}
 		if w.progressCh != nil {
-			w.progressCh <- struct{}{}
+			select {
+			case w.progressCh <- struct{}{}:
+			case <-ctx.Done():
+				w.logger.Info("context cancelled during progress reporting, stopping")
+				break
+			}
 		}
 		if w.numTraces != 0 {
 			if i >= w.numTraces {

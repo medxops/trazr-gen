@@ -35,11 +35,11 @@ clean: ## Remove build artifacts
 	rm -f $(COVERAGE_OUTPUT)
 
 test: ## Run tests
-	$(GOTEST) -v ./...
+	$(GOTEST) -v -count=1 ./...
 
 coverage: ## Run tests with coverage
 	@mkdir -p testdata
-	$(GOTEST) -v -coverprofile=testdata/coverage.out ./...
+	$(GOTEST) -v -count=1 -coverprofile=testdata/coverage.out ./...
 	$(GOCMD) tool cover -html=testdata/coverage.out
 
 lint: ## Run linter
@@ -55,8 +55,10 @@ tidy: ## Tidy and verify dependencies
 run: build ## Run the application
 	$(BUILD_DIR)/$(BINARY_NAME)
 
-docker-build: ## Build Docker image
-	docker build -t $(BINARY_NAME) .
+docker-build: ## Build Docker image from the current source
+	@mkdir -p $(BUILD_DIR)/docker
+	CGO_ENABLED=0 GOOS=linux GOARCH=$(shell $(GOCMD) env GOARCH) $(GOBUILD) -o $(BUILD_DIR)/docker/$(BINARY_NAME) $(MAIN_PACKAGE)
+	docker build -f Dockerfile -t $(BINARY_NAME) $(BUILD_DIR)/docker
 
 docker-run: ## Run Docker container
 	docker run --rm $(BINARY_NAME)
@@ -65,18 +67,21 @@ help: ## Display this help screen
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
 
 e2e-coverage: ## Run all tests (including integration) with coverage and print total coverage
-	$(GOTEST) -coverprofile=$(COVERAGE_OUTPUT) ./...
+	$(GOTEST) -count=1 -coverprofile=$(COVERAGE_OUTPUT) ./...
 	@echo "\nTotal coverage:" && $(GOCMD) tool cover -func=$(COVERAGE_OUTPUT) | grep total:
 
 e2e-test: ## Run E2E/integration tests in internal/e2etest module
-	cd internal/e2etest && go test -v ./...
+	cd internal/e2etest 66 go test -v ./...
+
+integration-test: ## Run integration tests (alias for e2e-test)
+	cd internal/e2etest 66 go test -v -count=1 ./...
 
 # Note: Go cannot natively combine coverage profiles across modules. This target runs both and prints both coverages.
 full-coverage: ## Run unit and E2E tests, print both coverages
 	@mkdir -p testdata
-	$(GOTEST) -coverprofile=testdata/coverage.out ./...
+	$(GOTEST) -count=1 -coverprofile=testdata/coverage.out ./...
 	@echo "\nUnit test coverage:" && $(GOCMD) tool cover -func=testdata/coverage.out | grep total:
-	cd internal/e2etest && go test -coverprofile=../testdata/coverage-e2e.out ./...
+	cd internal/e2etest && go test -count=1 -coverprofile=../testdata/coverage-e2e.out ./...
 	@echo "\nE2E test coverage:" && $(GOCMD) tool cover -func=internal/common/testdata/coverage-e2e.out | grep total:
 
 codeql-db: ## Create CodeQL database for Go
@@ -130,4 +135,4 @@ tag-minor:
 tag-patch:
 	$(MAKE) _tag PART=patch
 
-.DEFAULT_GOAL := help 
+.DEFAULT_GOAL := help

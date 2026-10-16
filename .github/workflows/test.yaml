@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: [1.23]
+        go-version: [1.26, 1.27]
     env:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     steps:
@@ -20,7 +20,7 @@ jobs:
         with:
           fetch-depth: 2
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: ${{ matrix.go-version }}
       - name: Install dependencies
@@ -38,6 +38,8 @@ jobs:
         run: go test -coverprofile=coverage.out ./...
       - name: Run tests (with coverage for Codecov)
         run: go test -coverprofile=coverage.txt ./...
+      - name: Run end-to-end tests
+        run: cd internal/e2etest && go test ./...
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4
         with:

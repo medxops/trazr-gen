@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/log"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"go.uber.org/zap"
 
@@ -57,7 +56,9 @@ func TestFixedNumberOfLogs(t *testing.T) {
 
 	// test
 	logger, _ := zap.NewDevelopment()
-	require.NoError(t, run(cfg, m, logger))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, run(ctx, cfg, m, logger))
 
 	time.Sleep(1 * time.Second)
 
@@ -78,7 +79,9 @@ func TestRateOfLogs(t *testing.T) {
 	m := &mockExporter{}
 
 	// test
-	require.NoError(t, run(cfg, m, zap.NewNop()))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, run(ctx, cfg, m, zap.NewNop()))
 
 	// verify
 	// the minimum acceptable number of logs for the rate of 10/sec for half a second
@@ -100,7 +103,9 @@ func TestUnthrottled(t *testing.T) {
 
 	// test
 	logger, _ := zap.NewDevelopment()
-	require.NoError(t, run(cfg, m, logger))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, run(ctx, cfg, m, logger))
 
 	assert.Greater(t, len(m.logs), 100, "there should have been more than 100 logs, had %d", len(m.logs))
 }
@@ -119,7 +124,9 @@ func TestCustomBody(t *testing.T) {
 
 	// test
 	logger, _ := zap.NewDevelopment()
-	require.NoError(t, run(cfg, m, logger))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, run(ctx, cfg, m, logger))
 
 	assert.Equal(t, "custom body", m.logs[0].Body().AsString())
 }
@@ -131,7 +138,9 @@ func TestLogsWithNoTelemetryAttributes(t *testing.T) {
 
 	// test
 	logger, _ := zap.NewDevelopment()
-	require.NoError(t, run(cfg, m, logger))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, run(ctx, cfg, m, logger))
 
 	time.Sleep(1 * time.Second)
 
@@ -142,7 +151,7 @@ func TestLogsWithNoTelemetryAttributes(t *testing.T) {
 		assert.Equal(t, 0, log.AttributesLen(), "shouldn't have more than 0 telemetry attributes")
 		// Check service.name in resource attributes
 		res := log.Resource()
-		attrs := (&res).Attributes()
+		attrs := res.Attributes()
 		found := false
 		for _, attr := range attrs {
 			if string(attr.Key) == "service.name" {
@@ -163,7 +172,9 @@ func TestLogsWithOneTelemetryAttributes(t *testing.T) {
 
 	// test
 	logger, _ := zap.NewDevelopment()
-	require.NoError(t, run(cfg, m, logger))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, run(ctx, cfg, m, logger))
 
 	time.Sleep(1 * time.Second)
 
@@ -172,7 +183,7 @@ func TestLogsWithOneTelemetryAttributes(t *testing.T) {
 	for _, l := range m.logs {
 		// Should have 1 telemetry attribute
 		assert.Equal(t, 1, l.AttributesLen(), "should have exactly 1 telemetry attribute")
-		l.WalkAttributes(func(attr log.KeyValue) bool {
+		l.WalkAttributes(func(attr attribute.KeyValue) bool {
 			if attr.Key == telemetryAttrKeyOne {
 				assert.Equal(t, telemetryAttrValueOne, attr.Value.AsString())
 			}
@@ -180,7 +191,7 @@ func TestLogsWithOneTelemetryAttributes(t *testing.T) {
 		})
 		// Check service.name in resource attributes
 		res := l.Resource()
-		attrs := (&res).Attributes()
+		attrs := res.Attributes()
 		found := false
 		for _, attr := range attrs {
 			if string(attr.Key) == "service.name" {
@@ -201,7 +212,9 @@ func TestLogsWithMultipleTelemetryAttributes(t *testing.T) {
 
 	// test
 	logger, _ := zap.NewDevelopment()
-	require.NoError(t, run(cfg, m, logger))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, run(ctx, cfg, m, logger))
 
 	time.Sleep(1 * time.Second)
 
@@ -212,7 +225,7 @@ func TestLogsWithMultipleTelemetryAttributes(t *testing.T) {
 		assert.Equal(t, 2, l.AttributesLen(), "should have exactly 2 telemetry attributes")
 		// Check service.name in resource attributes
 		res := l.Resource()
-		attrs := (&res).Attributes()
+		attrs := res.Attributes()
 		found := false
 		for _, attr := range attrs {
 			if string(attr.Key) == "service.name" {
@@ -235,7 +248,9 @@ func TestLogsWithTraceIDAndSpanID(t *testing.T) {
 
 	// test
 	logger, _ := zap.NewDevelopment()
-	require.NoError(t, run(cfg, m, logger))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	require.NoError(t, run(ctx, cfg, m, logger))
 
 	// verify
 	require.Len(t, m.logs, qty)
@@ -289,7 +304,9 @@ func TestValidate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			m := &mockExporter{}
 			logger, _ := zap.NewDevelopment()
-			require.EqualError(t, run(tt.cfg, m, logger), tt.wantErrMessage)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			require.EqualError(t, run(ctx, tt.cfg, m, logger), tt.wantErrMessage)
 		})
 	}
 }
@@ -415,7 +432,7 @@ func TestAttrToLogKeyValue(t *testing.T) {
 		t.Fatalf("expected %d, got %d", len(attrs), len(result))
 	}
 	for i, attr := range attrs {
-		if result[i].Key != string(attr.Key) {
+		if result[i].Key != attr.Key {
 			t.Errorf("expected key %q, got %q", attr.Key, result[i].Key)
 		}
 	}

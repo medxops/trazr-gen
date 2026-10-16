@@ -5,21 +5,25 @@ package logs
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"os"
+	"os/signal"
+	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
-	"go.opentelemetry.io/collector/pdata/plog"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
-	"go.opentelemetry.io/otel/log"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.25.0"
 	"go.uber.org/zap"
 	"golang.org/x/time/rate"
+
+	"github.com/medxops/trazr-gen/internal/common"
 )
 
 const logsHelpTemplate = `
@@ -59,23 +63,68 @@ func SetHelpTemplateForCmd(cmd interface{ SetHelpTemplate(string) }) {
 
 // Start starts the log telemetry generator
 func Start(cfg *Config, logger *zap.Logger) error {
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
 	if err := cfg.InitAttributes(); err != nil {
 		logger.Error("failed to initialize attributes", zap.Error(err))
 		return err
 	}
 
-	exporter, err := createExporter(cfg, logger)
-	if err != nil {
-		logger.Error("failed to process OTLP exporter", zap.Error(err))
-		return err
+	if !cfg.IsEndpointReachable() {
+		return fmt.Errorf("cannot reach OTLP collector at %s; check --otlp-endpoint and start the collector", cfg.Endpoint())
 	}
 
-	logger.Info("starting the logs generator with configuration", zap.Any("config", cfg))
+	var exporter sdklog.Exporter
+	// Root context canceled on SIGINT/SIGTERM — scoped for exporter creation retry
+	expCtx, expCancel := context.WithTimeout(context.Background(), 1*time.Minute)
+	defer expCancel()
+
+	deadline := time.Now().Add(1 * time.Minute)
+	backoffDelay := 500 * time.Millisecond
+	maxDelay := 10 * time.Second
+	for {
+		var err error
+		exporter, err = createExporter(cfg, logger)
+		if err == nil {
+			break
+		}
+		if time.Now().After(deadline) || expCtx.Err() != nil {
+			logger.Error("giving up creating logs exporter", zap.Error(err))
+			return err
+		}
+		logger.Warn("failed to create logs exporter, will retry", zap.Error(err), zap.Duration("next_backoff", backoffDelay))
+		select {
+		case <-time.After(backoffDelay):
+			backoffDelay *= 2
+			if backoffDelay > maxDelay {
+				backoffDelay = maxDelay
+			}
+		case <-expCtx.Done():
+			logger.Error("canceled while creating logs exporter", zap.Error(expCtx.Err()))
+			return expCtx.Err()
+		}
+	}
+
+	// Ensure exporter is shut down once after generation completes
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		logger.Info("stopping the exporter")
+		if tempError := exporter.Shutdown(shutdownCtx); tempError != nil {
+			logger.Error("failed to stop the exporter", zap.Error(tempError))
+		}
+	}()
+	// Root context canceled on SIGINT/SIGTERM
+	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	logger.Info("starting the logs generator", zap.Int("workers", cfg.WorkerCount), zap.Int("logs_per_worker", cfg.NumLogs))
 	if cfg.TerminalOutput {
 		fmt.Println("Starting logs generator")
 	}
 
-	if err := run(cfg, exporter, logger); err != nil {
+	if err := run(rootCtx, cfg, exporter, logger); err != nil {
 		logger.Error("failed to run logs generator", zap.Error(err))
 		return err
 	}
@@ -84,7 +133,7 @@ func Start(cfg *Config, logger *zap.Logger) error {
 }
 
 // run executes the test scenario.
-func run(c *Config, exporter sdklog.Exporter, logger *zap.Logger) error {
+func run(rootCtx context.Context, c *Config, exporter sdklog.Exporter, logger *zap.Logger) error {
 	if err := c.Validate(); err != nil {
 		return err
 	}
@@ -104,64 +153,102 @@ func run(c *Config, exporter sdklog.Exporter, logger *zap.Logger) error {
 	wg := sync.WaitGroup{}
 	attrs, err := c.GetResourceAttrWithMockMarker()
 	if err != nil {
-		logger.Fatal("failed to process resource attributes", zap.Error(err))
-		return err
+		return fmt.Errorf("process resource attributes: %w", err)
 	}
+
+	// Add trazr.run.flags attribute when time-bound feature is enabled
+	if c.TrazrTimeBound {
+		attrs = append(attrs, attribute.String("trazr.run.flags", "timebound"))
+	}
+
 	res := resource.NewWithAttributes(semconv.SchemaURL, attrs...)
 
 	running := &atomic.Bool{}
 	running.Store(true)
+	runCtx, cancelRun := context.WithCancel(rootCtx)
+	defer cancelRun()
+	stopDone := make(chan struct{})
+	// Stop promptly on Ctrl-C
+	go func() {
+		defer close(stopDone)
+		<-runCtx.Done()
+		running.Store(false)
+		if rootCtx.Err() != nil {
+			logger.Info("received interrupt signal, stopping all workers")
+		}
+	}()
 
 	var totalLogs int64
 
 	progressCh := make(chan struct{})
+	progressDone := make(chan struct{})
 	go func() {
+		defer close(progressDone)
 		count := 0
 		for range progressCh {
 			count++
-			if c.TerminalOutput {
+			if c.TerminalOutput && c.ShowProgressCounter {
 				fmt.Println("Logs generated:", count)
 			}
 		}
-		if c.TerminalOutput {
+		if c.TerminalOutput && c.ShowProgressCounter {
 			fmt.Println("Logs generated (final count):", count)
 		}
 	}()
 
+	// Generate session ID once for all workers to ensure consistency
+	sessionID := GenerateTrazrTimeBoundName(c.MockSeed)
+	workerErrors := make(chan error, c.WorkerCount)
+
 	for i := 0; i < c.WorkerCount; i++ {
 		wg.Add(1)
-		w := worker{
-			numLogs:        c.NumLogs,
-			limitPerSecond: limit,
-			body:           c.Body,
-			severityText:   c.SeverityText,
-			severityNumber: c.SeverityNumber,
-			totalDuration:  c.TotalDuration,
-			running:        running,
-			wg:             &wg,
-			logger:         logger.With(zap.Int("worker", i+1)),
-			index:          i,
-			traceID:        c.TraceID,
-			spanID:         c.SpanID,
-			logsCounter:    &totalLogs,
-			progressCh:     progressCh,
+		var progressCb func(string)
+		if c.TerminalOutput {
+			progressCb = func(msg string) { fmt.Println(msg) }
 		}
-		defer func() {
-			w.logger.Info("stopping the exporter")
-			if tempError := exporter.Shutdown(context.Background()); tempError != nil {
-				w.logger.Error("failed to stop the exporter", zap.Error(tempError))
+		w := worker{
+			numLogs:            c.NumLogs,
+			limitPerSecond:     limit,
+			body:               c.Body,
+			severityText:       c.SeverityText,
+			severityNumber:     c.SeverityNumber,
+			totalDuration:      c.TotalDuration,
+			running:            running,
+			wg:                 &wg,
+			logger:             logger.With(zap.Int("worker", i+1)),
+			index:              i,
+			traceID:            c.TraceID,
+			spanID:             c.SpanID,
+			logsCounter:        &totalLogs,
+			progressCh:         progressCh,
+			progressCb:         progressCb,
+			timeBoundSessionID: sessionID,
+		}
+		go func() {
+			if err := w.simulateLogs(runCtx, c, res, exporter); err != nil {
+				workerErrors <- err
+				cancelRun()
 			}
 		}()
-		go w.simulateLogs(c, res, exporter)
 	}
 
 	if c.TotalDuration > 0 {
-		time.Sleep(c.TotalDuration)
+		select {
+		case <-time.After(c.TotalDuration):
+		case <-runCtx.Done():
+		}
 		running.Store(false)
 	}
 	wg.Wait()
+	cancelRun()
+	<-stopDone
 	close(progressCh)
+	<-progressDone
+	close(workerErrors)
 	logger.Info("final count", zap.Int64("logs_generated", atomic.LoadInt64(&totalLogs)))
+	for err := range workerErrors {
+		return err
+	}
 
 	return nil
 }
@@ -197,76 +284,44 @@ func createExporter(cfg *Config, logger *zap.Logger) (sdklog.Exporter, error) {
 	return exp, err
 }
 
-func parseSeverity(severityText string, severityNumber int32) (string, log.Severity, error) {
-	sn := log.Severity(severityNumber)
-	if sn < log.SeverityTrace1 || sn > log.SeverityFatal4 {
-		return "", log.SeverityUndefined, errors.New("severity-number is out of range, the valid range is [1,24]")
-	}
-
-	// If severityText is empty, set it based on severityNumber
-	if severityText == "" {
-		severityText = severityTextFromNumber(severityNumber)
-	}
-
-	// severity number should match well-known severityText
-	switch severityText {
-	case plog.SeverityNumberTrace.String():
-		if severityNumber < 1 || severityNumber > 4 {
-			return "", 0, fmt.Errorf("severity text %q does not match severity number %d, the valid range is [1,4]", severityText, severityNumber)
-		}
-	case plog.SeverityNumberDebug.String():
-		if severityNumber < 5 || severityNumber > 8 {
-			return "", 0, fmt.Errorf("severity text %q does not match severity number %d, the valid range is [5,8]", severityText, severityNumber)
-		}
-	case plog.SeverityNumberInfo.String():
-		if severityNumber < 9 || severityNumber > 12 {
-			return "", 0, fmt.Errorf("severity text %q does not match severity number %d, the valid range is [9,12]", severityText, severityNumber)
-		}
-	case plog.SeverityNumberWarn.String():
-		if severityNumber < 13 || severityNumber > 16 {
-			return "", 0, fmt.Errorf("severity text %q does not match severity number %d, the valid range is [13,16]", severityText, severityNumber)
-		}
-	case plog.SeverityNumberError.String():
-		if severityNumber < 17 || severityNumber > 20 {
-			return "", 0, fmt.Errorf("severity text %q does not match severity number %d, the valid range is [17,20]", severityText, severityNumber)
-		}
-	case plog.SeverityNumberFatal.String():
-		if severityNumber < 21 || severityNumber > 24 {
-			return "", 0, fmt.Errorf("severity text %q does not match severity number %d, the valid range is [21,24]", severityText, severityNumber)
-		}
-	}
-
-	return severityText, sn, nil
-}
-
 // severityTextFromNumber returns the canonical OpenTelemetry severity text for a given number.
-var severityNumberToText = map[int32]string{
-	1:  "Trace",
-	2:  "Trace2",
-	3:  "Trace3",
-	4:  "Trace4",
-	5:  "Debug",
-	6:  "Debug2",
-	7:  "Debug3",
-	8:  "Debug4",
-	9:  "Info",
-	10: "Info2",
-	11: "Info3",
-	12: "Info4",
-	13: "Warn",
-	14: "Warn2",
-	15: "Warn3",
-	16: "Warn4",
-	17: "Error",
-	18: "Error2",
-	19: "Error3",
-	20: "Error4",
-	21: "Fatal",
-	22: "Fatal2",
-	23: "Fatal3",
-	24: "Fatal4",
+func severityTextFromNumber(severityNumber int32) string {
+	return common.SeverityTextFromNumber(severityNumber)
 }
 
-func severityTextFromNumber(severityNumber int32) string {
-	return severityNumberToText[severityNumber]
+// OutputLog outputs a single log entry using the same logic as the logs worker.
+func OutputLog(cfg *Config, logger *zap.Logger) {
+	msg := cfg.Body
+	fields := []zap.Field{
+		zap.String("trace_id", cfg.TraceID),
+		zap.String("span_id", cfg.SpanID),
+		zap.String("severity", cfg.SeverityText),
+	}
+
+	// Output to logger
+	switch cfg.SeverityText {
+	case "debug":
+		logger.Debug(msg, fields...)
+	case "warn":
+		logger.Warn(msg, fields...)
+	case "error":
+		logger.Error(msg, fields...)
+	default:
+		logger.Info(msg, fields...)
+	}
+
+	// Output to terminal if enabled
+	if cfg.TerminalOutput {
+		traceIDStr := cfg.TraceID
+		if traceIDStr == "00000000000000000000000000000000" || traceIDStr == "" {
+			traceIDStr = "-"
+		}
+		spanIDStr := cfg.SpanID
+		if spanIDStr == "0000000000000000" || spanIDStr == "" {
+			spanIDStr = "-"
+		}
+
+		fmt.Printf("[%s] %s (trace_id: %s, span_id: %s)\n",
+			strings.ToUpper(cfg.SeverityText), msg, traceIDStr, spanIDStr)
+	}
 }

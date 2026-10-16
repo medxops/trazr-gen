@@ -24,8 +24,7 @@ func TestGenerateLogsWithSelectiveSensitiveAttributes(t *testing.T) {
 	sink := &consumertest.LogsSink{}
 	rCfg := f.CreateDefaultConfig()
 	endpoint := getAvailableLocalAddress(t)
-	rCfg.(*otlpreceiver.Config).GRPC.NetAddr.Endpoint = endpoint
-	rCfg.(*otlpreceiver.Config).HTTP = nil
+	setReceiverEndpoint(rCfg, endpoint)
 	r, err := f.CreateLogs(context.Background(), receivertest.NewNopSettings(f.Type()), rCfg, sink)
 	require.NoError(t, err)
 	err = r.Start(context.Background(), componenttest.NewNopHost())
@@ -53,18 +52,18 @@ func TestGenerateLogsWithSelectiveSensitiveAttributes(t *testing.T) {
 
 	// Check resource attributes for sensitive data
 	resAttrs := sink.AllLogs()[0].ResourceLogs().At(0).Resource().Attributes()
-	resVal, resOk := resAttrs.Get("trazr.sensitive.data")
+	resVal, resOk := resAttrs.Get("trazrgen.sensitive.data")
 	if !resOk {
-		t.Fatalf("trazr.sensitive.data attribute not found on resource; got attributes: %+v", resAttrs.AsRaw())
+		t.Fatalf("trazrgen.sensitive.data attribute not found on resource; got attributes: %+v", resAttrs.AsRaw())
 	}
 	assert.Contains(t, resVal.AsString(), "a", "'a' should be marked sensitive (resource)")
 	assert.NotContains(t, resVal.AsString(), "c", "'c' should NOT be marked sensitive (resource)")
 
 	// Check log record attributes for sensitive data
 	logRec := sink.AllLogs()[0].ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0)
-	val, ok := logRec.Attributes().Get("trazr.sensitive.data")
+	val, ok := logRec.Attributes().Get("trazrgen.sensitive.data")
 	if !ok {
-		t.Fatalf("trazr.sensitive.data attribute not found on log record; got attributes: %+v", logRec.Attributes().AsRaw())
+		t.Fatalf("trazrgen.sensitive.data attribute not found on log record; got attributes: %+v", logRec.Attributes().AsRaw())
 	}
 	assert.Contains(t, val.AsString(), "d", "'d' should be marked sensitive (log)")
 	assert.NotContains(t, val.AsString(), "f", "'f' should NOT be marked sensitive (log)")

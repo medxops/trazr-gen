@@ -10,7 +10,14 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	goleak.VerifyTestMain(m)
+	// Configure goleak to ignore HTTP-related goroutines that are expected in tests
+	opts := []goleak.Option{
+		goleak.IgnoreTopFunction("net/http.(*Transport).dialConn"),
+		goleak.IgnoreTopFunction("net/http.(*persistConn).readLoop"),
+		goleak.IgnoreTopFunction("net/http.(*persistConn).writeLoop"),
+		goleak.IgnoreTopFunction("internal/poll.runtime_pollWait"),
+	}
+	goleak.VerifyTestMain(m, opts...)
 }
 
 func TestSeverityTextFromNumber(t *testing.T) {
