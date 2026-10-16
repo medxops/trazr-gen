@@ -46,8 +46,8 @@ type worker struct {
 	timeBoundSessionID string          // cached session ID for time-bound attributes to ensure consistency
 }
 
-// Helper to convert []attribute.KeyValue to []log.KeyValue
-func attrToLogKeyValue(attrs []attribute.KeyValue) []log.KeyValue {
+// Helper to convert []attribute.KeyValue to []attribute.KeyValue
+func attrToLogKeyValue(attrs []attribute.KeyValue) []attribute.KeyValue {
 	return common.AttrToLogKeyValue(attrs)
 }
 
@@ -67,10 +67,10 @@ func GenerateTrazrTimeBoundName(mockSeed int64) string {
 }
 
 // generateRandomDiffAttribute adds a random attribute for baseline testing
-func generateRandomDiffAttribute() log.KeyValue {
+func generateRandomDiffAttribute() attribute.KeyValue {
 	// Generate a random UUID-like string
 	diffID := fmt.Sprintf("diff-%x", rand.Uint64())
-	return log.String("trazr.diff.id", diffID)
+	return attribute.String("trazr.diff.id", diffID)
 }
 
 // generateRandomDiffBody modifies the log body with a random suffix
@@ -119,7 +119,7 @@ func (w worker) reportProgressf(format string, args ...any) {
 // logData holds all the data needed to create a log record
 type logData struct {
 	body           string
-	attrs          []log.KeyValue
+	attrs          []attribute.KeyValue
 	severityNumber int32
 	severityText   string
 	severityEnum   log.Severity
@@ -162,8 +162,8 @@ func (w worker) processLogBody(cfg *Config) (string, bool) {
 }
 
 // processAttributes processes telemetry attributes and adds mock data markers
-// Returns both attribute.KeyValue (for pretty printing) and []log.KeyValue (for record creation)
-func (w worker) processAttributes(cfg *Config, logBodyExpanded bool) ([]attribute.KeyValue, []log.KeyValue, error) {
+// Returns both attribute.KeyValue (for pretty printing) and []attribute.KeyValue (for record creation)
+func (w worker) processAttributes(cfg *Config, logBodyExpanded bool) ([]attribute.KeyValue, []attribute.KeyValue, error) {
 	attrKVs, err := cfg.GetTelemetryAttrWithMockMarker()
 	if err != nil {
 		return nil, nil, err
@@ -196,7 +196,7 @@ func (w worker) addMockDataMarker(attrKVs []attribute.KeyValue, marker string) [
 }
 
 // addTimeBoundAttributes adds time-bound attributes to the log
-func (w *worker) addTimeBoundAttributes(cfg *Config, attrs []log.KeyValue, logIndex int64, totalLogs int) []log.KeyValue {
+func (w *worker) addTimeBoundAttributes(cfg *Config, attrs []attribute.KeyValue, logIndex int64, totalLogs int) []attribute.KeyValue {
 	if !cfg.TrazrTimeBound {
 		return attrs
 	}
@@ -206,39 +206,39 @@ func (w *worker) addTimeBoundAttributes(cfg *Config, attrs []log.KeyValue, logIn
 		// Batch 1: logs 0-14 (first 15 logs)
 		if logIndex >= 0 && logIndex <= 14 {
 			if logIndex == 0 {
-				attrs = append(attrs, log.String("trazr.run.start", "batch-1"))
+				attrs = append(attrs, attribute.String("trazr.run.start", "batch-1"))
 			}
 			if logIndex == 14 {
-				attrs = append(attrs, log.String("trazr.run.stop", "batch-1"))
+				attrs = append(attrs, attribute.String("trazr.run.stop", "batch-1"))
 			}
 		}
 
 		// Batch 2: logs 15-24 (next 10 logs, if available)
 		if logIndex >= 15 && logIndex <= 24 {
 			if logIndex == 15 {
-				attrs = append(attrs, log.String("trazr.run.start", "batch-2"))
+				attrs = append(attrs, attribute.String("trazr.run.start", "batch-2"))
 			}
 			if logIndex == 24 || logIndex == int64(totalLogs-1) {
-				attrs = append(attrs, log.String("trazr.run.stop", "batch-2"))
+				attrs = append(attrs, attribute.String("trazr.run.stop", "batch-2"))
 			}
 		}
 
 		// Batch 3: logs 5-19 (overlaps both batch 1 and batch 2)
 		if logIndex >= 5 && logIndex <= 19 {
 			if logIndex == 5 {
-				attrs = append(attrs, log.String("trazr.run.start", "batch-3"))
+				attrs = append(attrs, attribute.String("trazr.run.start", "batch-3"))
 			}
 			if logIndex == 19 {
-				attrs = append(attrs, log.String("trazr.run.stop", "batch-3"))
+				attrs = append(attrs, attribute.String("trazr.run.stop", "batch-3"))
 			}
 		}
 	} else {
 		// For 10 or fewer logs, use original behavior
 		if logIndex == 0 {
-			attrs = append(attrs, log.String("trazr.run.start", w.timeBoundSessionID))
+			attrs = append(attrs, attribute.String("trazr.run.start", w.timeBoundSessionID))
 		}
 		if totalLogs > 0 && logIndex == int64(totalLogs-1) {
-			attrs = append(attrs, log.String("trazr.run.stop", w.timeBoundSessionID))
+			attrs = append(attrs, attribute.String("trazr.run.stop", w.timeBoundSessionID))
 		}
 	}
 
@@ -301,7 +301,7 @@ func (w worker) createLogRecord(data *logData, res *resource.Resource) sdklog.Re
 		ObservedTimestamp: time.Now(),
 		Severity:          data.severityEnum,
 		SeverityText:      data.severityText,
-		Body:              log.StringValue(data.body),
+		Body:              attribute.StringValue(data.body),
 		Attributes:        data.attrs,
 		TraceID:           data.traceID,
 		SpanID:            data.spanID,
@@ -312,7 +312,8 @@ func (w worker) createLogRecord(data *logData, res *resource.Resource) sdklog.Re
 	return rf.NewRecord()
 }
 
-func (w worker) simulateLogs(ctx context.Context, cfg *Config, res *resource.Resource, exporter sdklog.Exporter) {
+func (w worker) simulateLogs(ctx context.Context, cfg *Config, res *resource.Resource, exporter sdklog.Exporter) error {
+	defer w.wg.Done()
 	limiter := rate.NewLimiter(w.limitPerSecond, 1)
 	var i int64
 
@@ -323,8 +324,7 @@ func (w worker) simulateLogs(ctx context.Context, cfg *Config, res *resource.Res
 				w.logger.Info("context cancelled during rate limiting, stopping")
 				break
 			}
-			w.reportProgressf("Limiter wait failed: %v", err)
-			w.logger.Fatal("limiter wait failed, retry", zap.Error(err))
+			return fmt.Errorf("rate limit logs: %w", err)
 		}
 
 		// Process trace and span IDs
@@ -345,8 +345,7 @@ func (w worker) simulateLogs(ctx context.Context, cfg *Config, res *resource.Res
 		// Process attributes
 		origAttrs, attrs, err := w.processAttributes(cfg, logBodyExpanded)
 		if err != nil {
-			w.reportProgressf("Failed to process telemetry attributes: %v", err)
-			w.logger.Fatal("failed to process telemetry attributes", zap.Error(err))
+			return fmt.Errorf("process log attributes: %w", err)
 		}
 
 		// Add time-bound attributes
@@ -369,26 +368,15 @@ func (w worker) simulateLogs(ctx context.Context, cfg *Config, res *resource.Res
 		// Create log record
 		logRecord := w.createLogRecord(data, res)
 
-		// Optionally print detailed output to terminal
-		if cfg.TerminalOutput && cfg.PrintDetails {
-			w.printLogDetails(cfg, data, origAttrs, data.attrs, res)
-		}
-
 		if err := exporter.Export(ctx, []sdklog.Record{logRecord}); err != nil {
 			if ctx.Err() != nil {
 				w.logger.Info("context cancelled during export, stopping")
 				break
 			}
-			w.reportProgressf("Exporter failed, will retry in 5s: %v", err)
-			w.logger.Warn("exporter failed, will retry in 5s", zap.Error(err))
-			// Use context-aware sleep
-			select {
-			case <-time.After(5 * time.Second):
-			case <-ctx.Done():
-				w.logger.Info("context cancelled during retry sleep, stopping")
-				break
-			}
-			continue
+			return fmt.Errorf("export log to %s: %w", cfg.Endpoint(), err)
+		}
+		if cfg.TerminalOutput && cfg.PrintDetails {
+			w.printLogDetails(data, origAttrs, data.attrs, res)
 		}
 
 		i++
@@ -408,11 +396,11 @@ func (w worker) simulateLogs(ctx context.Context, cfg *Config, res *resource.Res
 		}
 	}
 
-	w.wg.Done()
+	return nil
 }
 
 // printLogDetails prints a human-readable representation of the generated log
-func (w worker) printLogDetails(cfg *Config, data *logData, attrs []attribute.KeyValue, dataAttrs []log.KeyValue, res *resource.Resource) {
+func (w worker) printLogDetails(data *logData, attrs []attribute.KeyValue, dataAttrs []attribute.KeyValue, res *resource.Resource) {
 	// Trace/Span IDs as strings or "-"
 	traceIDStr := data.traceID.String()
 	if traceIDStr == "00000000000000000000000000000000" || traceIDStr == "" {
@@ -468,7 +456,7 @@ func attrValueToString(v attribute.Value) string {
 		}
 		return "false"
 	case attribute.INT64:
-		return fmt.Sprintf("%d", v.AsInt64())
+		return strconv.FormatInt(v.AsInt64(), 10)
 	case attribute.FLOAT64:
 		return fmt.Sprintf("%g", v.AsFloat64())
 	case attribute.STRING:

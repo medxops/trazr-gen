@@ -163,7 +163,6 @@ func (w worker) simulateMetrics(ctx context.Context, res *resource.Resource, exp
 			if idx < 0 {
 				idx += 10
 			}
-			//nolint:gosec // safe: idx is always in [0,9] due to explicit bounds check above
 			iteration := uint64(idx)
 			sum := histogramBucketSamples[iteration].sum
 			bucketCounts := histogramBucketSamples[iteration].bucketCounts
@@ -229,8 +228,8 @@ func (w worker) simulateMetrics(ctx context.Context, res *resource.Resource, exp
 						for i := 0; i < dp.Attributes.Len(); i++ {
 							kv := dp.Attributes.ToSlice()[i]
 							key := string(kv.Key)
-						val := common.FormatAttrValue(kv.Value.AsInterface())
-						fmt.Printf("    - %s: %s\n", key, common.FormatSensitiveValue(key, val))
+							val := common.FormatAttrValue(kv.Value.AsInterface())
+							fmt.Printf("    - %s: %s\n", key, common.FormatSensitiveValue(key, val))
 						}
 						if len(dp.Exemplars) > 0 {
 							ex := dp.Exemplars[0]
@@ -256,8 +255,8 @@ func (w worker) simulateMetrics(ctx context.Context, res *resource.Resource, exp
 						for i := 0; i < dp.Attributes.Len(); i++ {
 							kv := dp.Attributes.ToSlice()[i]
 							key := string(kv.Key)
-						val := common.FormatAttrValue(kv.Value.AsInterface())
-						fmt.Printf("    - %s: %s\n", key, common.FormatSensitiveValue(key, val))
+							val := common.FormatAttrValue(kv.Value.AsInterface())
+							fmt.Printf("    - %s: %s\n", key, common.FormatSensitiveValue(key, val))
 						}
 						if len(dp.Exemplars) > 0 {
 							ex := dp.Exemplars[0]
@@ -284,8 +283,8 @@ func (w worker) simulateMetrics(ctx context.Context, res *resource.Resource, exp
 						for i := 0; i < dp.Attributes.Len(); i++ {
 							kv := dp.Attributes.ToSlice()[i]
 							key := string(kv.Key)
-						val := common.FormatAttrValue(kv.Value.AsInterface())
-						fmt.Printf("    - %s: %s\n", key, common.FormatSensitiveValue(key, val))
+							val := common.FormatAttrValue(kv.Value.AsInterface())
+							fmt.Printf("    - %s: %s\n", key, common.FormatSensitiveValue(key, val))
 						}
 						if len(dp.Exemplars) > 0 {
 							ex := dp.Exemplars[0]

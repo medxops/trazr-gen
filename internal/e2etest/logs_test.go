@@ -24,8 +24,7 @@ func TestGenerateLogsWithSelectiveSensitiveAttributes(t *testing.T) {
 	sink := &consumertest.LogsSink{}
 	rCfg := f.CreateDefaultConfig()
 	endpoint := getAvailableLocalAddress(t)
-	rCfg.(*otlpreceiver.Config).GRPC.NetAddr.Endpoint = endpoint
-	rCfg.(*otlpreceiver.Config).HTTP = nil
+	setReceiverEndpoint(rCfg, endpoint)
 	r, err := f.CreateLogs(context.Background(), receivertest.NewNopSettings(f.Type()), rCfg, sink)
 	require.NoError(t, err)
 	err = r.Start(context.Background(), componenttest.NewNopHost())

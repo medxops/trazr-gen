@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/log"
 )
 
 // LogSeverity constants for OpenTelemetry log severity levels
@@ -18,30 +17,10 @@ const (
 	LogSeverityFatal int32 = 21
 )
 
-// AttrToLogKeyValue converts []attribute.KeyValue to []log.KeyValue
-// This is a shared utility used by both logs and traces packages
-func AttrToLogKeyValue(attrs []attribute.KeyValue) []log.KeyValue {
-	result := make([]log.KeyValue, len(attrs))
-	for i, attr := range attrs {
-		var v log.Value
-		switch attr.Value.Type() {
-		case attribute.BOOL:
-			v = log.BoolValue(attr.Value.AsBool())
-		case attribute.INT64:
-			v = log.Int64Value(attr.Value.AsInt64())
-		case attribute.FLOAT64:
-			v = log.Float64Value(attr.Value.AsFloat64())
-		case attribute.STRING:
-			v = log.StringValue(attr.Value.AsString())
-		default:
-			v = log.StringValue(attr.Value.Emit())
-		}
-		result[i] = log.KeyValue{
-			Key:   string(attr.Key),
-			Value: v,
-		}
-	}
-	return result
+// AttrToLogKeyValue copies attributes so runtime log markers do not modify
+// the caller's slice. The stable Logs SDK uses attribute.KeyValue directly.
+func AttrToLogKeyValue(attrs []attribute.KeyValue) []attribute.KeyValue {
+	return append([]attribute.KeyValue(nil), attrs...)
 }
 
 // sensitiveKeys holds attribute keys whose values should be highlighted in
@@ -66,7 +45,7 @@ const (
 
 // FormatAttrValue formats an attribute value for terminal display, trimming
 // trailing whitespace that YAML multi-line blocks may introduce.
-func FormatAttrValue(v interface{}) string {
+func FormatAttrValue(v any) string {
 	return strings.TrimSpace(fmt.Sprintf("%v", v))
 }
 

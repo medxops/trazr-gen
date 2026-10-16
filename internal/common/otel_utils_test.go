@@ -20,10 +20,10 @@ func TestAttrToLogKeyValue(t *testing.T) {
 	assert.Len(t, result, len(attrs))
 
 	// Check keys
-	assert.Equal(t, "str", result[0].Key)
-	assert.Equal(t, "bool", result[1].Key)
-	assert.Equal(t, "int", result[2].Key)
-	assert.Equal(t, "float", result[3].Key)
+	assert.Equal(t, attribute.Key("str"), result[0].Key)
+	assert.Equal(t, attribute.Key("bool"), result[1].Key)
+	assert.Equal(t, attribute.Key("int"), result[2].Key)
+	assert.Equal(t, attribute.Key("float"), result[3].Key)
 
 	// Check values
 	assert.Equal(t, "val", result[0].Value.AsString())

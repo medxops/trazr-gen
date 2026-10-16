@@ -5,6 +5,8 @@ package traces
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -55,11 +57,12 @@ func TestRandomPattern_Variety(t *testing.T) {
 		spans := pattern.GenerateSpans(config, traceID, services)
 
 		// Create a pattern signature based on span depths
-		signature := ""
+		var signature strings.Builder
 		for _, span := range spans {
-			signature += string(rune(span.Depth + '0'))
+			signature.WriteString(strconv.Itoa(span.Depth))
+			signature.WriteByte(',')
 		}
-		patterns[signature] = true
+		patterns[signature.String()] = true
 	}
 
 	// Should have some variety in patterns

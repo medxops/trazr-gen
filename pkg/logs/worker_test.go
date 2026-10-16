@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/log"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"go.uber.org/zap"
 
@@ -152,7 +151,7 @@ func TestLogsWithNoTelemetryAttributes(t *testing.T) {
 		assert.Equal(t, 0, log.AttributesLen(), "shouldn't have more than 0 telemetry attributes")
 		// Check service.name in resource attributes
 		res := log.Resource()
-		attrs := (&res).Attributes()
+		attrs := res.Attributes()
 		found := false
 		for _, attr := range attrs {
 			if string(attr.Key) == "service.name" {
@@ -184,7 +183,7 @@ func TestLogsWithOneTelemetryAttributes(t *testing.T) {
 	for _, l := range m.logs {
 		// Should have 1 telemetry attribute
 		assert.Equal(t, 1, l.AttributesLen(), "should have exactly 1 telemetry attribute")
-		l.WalkAttributes(func(attr log.KeyValue) bool {
+		l.WalkAttributes(func(attr attribute.KeyValue) bool {
 			if attr.Key == telemetryAttrKeyOne {
 				assert.Equal(t, telemetryAttrValueOne, attr.Value.AsString())
 			}
@@ -192,7 +191,7 @@ func TestLogsWithOneTelemetryAttributes(t *testing.T) {
 		})
 		// Check service.name in resource attributes
 		res := l.Resource()
-		attrs := (&res).Attributes()
+		attrs := res.Attributes()
 		found := false
 		for _, attr := range attrs {
 			if string(attr.Key) == "service.name" {
@@ -226,7 +225,7 @@ func TestLogsWithMultipleTelemetryAttributes(t *testing.T) {
 		assert.Equal(t, 2, l.AttributesLen(), "should have exactly 2 telemetry attributes")
 		// Check service.name in resource attributes
 		res := l.Resource()
-		attrs := (&res).Attributes()
+		attrs := res.Attributes()
 		found := false
 		for _, attr := range attrs {
 			if string(attr.Key) == "service.name" {
@@ -433,7 +432,7 @@ func TestAttrToLogKeyValue(t *testing.T) {
 		t.Fatalf("expected %d, got %d", len(attrs), len(result))
 	}
 	for i, attr := range attrs {
-		if result[i].Key != string(attr.Key) {
+		if result[i].Key != attr.Key {
 			t.Errorf("expected key %q, got %q", attr.Key, result[i].Key)
 		}
 	}

@@ -245,8 +245,8 @@ func TestSpanStatuses(t *testing.T) {
 			// test the program given input, including erroneous inputs
 			if tt.validInput {
 				ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	require.NoError(t, run(ctx, cfg, zap.NewNop()))
+				defer cancel()
+				require.NoError(t, run(ctx, cfg, zap.NewNop()))
 				// verify that the default the span status is set as expected
 				for _, span := range syncer.spans {
 					assert.Equalf(t, span.Status().Code, tt.spanStatus, "span status: %v and expected status %v", span.Status().Code, tt.spanStatus)

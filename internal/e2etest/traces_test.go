@@ -24,8 +24,7 @@ func TestGenerateTraces(t *testing.T) {
 	sink := &consumertest.TracesSink{}
 	rCfg := f.CreateDefaultConfig()
 	endpoint := getAvailableLocalAddress(t)
-	rCfg.(*otlpreceiver.Config).GRPC.NetAddr.Endpoint = endpoint
-	rCfg.(*otlpreceiver.Config).HTTP = nil
+	setReceiverEndpoint(rCfg, endpoint)
 	r, err := f.CreateTraces(context.Background(), receivertest.NewNopSettings(f.Type()), rCfg, sink)
 	require.NoError(t, err)
 	err = r.Start(context.Background(), componenttest.NewNopHost())
@@ -58,8 +57,7 @@ func TestGenerateTracesWithSelectiveSensitiveAttributes(t *testing.T) {
 	sink := &consumertest.TracesSink{}
 	rCfg := f.CreateDefaultConfig()
 	endpoint := getAvailableLocalAddress(t)
-	rCfg.(*otlpreceiver.Config).GRPC.NetAddr.Endpoint = endpoint
-	rCfg.(*otlpreceiver.Config).HTTP = nil
+	setReceiverEndpoint(rCfg, endpoint)
 	r, err := f.CreateTraces(context.Background(), receivertest.NewNopSettings(f.Type()), rCfg, sink)
 	require.NoError(t, err)
 	err = r.Start(context.Background(), componenttest.NewNopHost())
@@ -110,8 +108,7 @@ func TestEnhancedTraceGenerationWithLogsAndMetrics(t *testing.T) {
 	traceSink := &consumertest.TracesSink{}
 	rCfg := f.CreateDefaultConfig()
 	endpoint := getAvailableLocalAddress(t)
-	rCfg.(*otlpreceiver.Config).GRPC.NetAddr.Endpoint = endpoint
-	rCfg.(*otlpreceiver.Config).HTTP = nil
+	setReceiverEndpoint(rCfg, endpoint)
 	r, err := f.CreateTraces(context.Background(), receivertest.NewNopSettings(f.Type()), rCfg, traceSink)
 	require.NoError(t, err)
 	err = r.Start(context.Background(), componenttest.NewNopHost())
@@ -124,8 +121,7 @@ func TestEnhancedTraceGenerationWithLogsAndMetrics(t *testing.T) {
 	logSink := &consumertest.LogsSink{}
 	rCfgLogs := f.CreateDefaultConfig()
 	endpointLogs := getAvailableLocalAddress(t)
-	rCfgLogs.(*otlpreceiver.Config).GRPC.NetAddr.Endpoint = endpointLogs
-	rCfgLogs.(*otlpreceiver.Config).HTTP = nil
+	setReceiverEndpoint(rCfgLogs, endpointLogs)
 	rLogs, err := f.CreateLogs(context.Background(), receivertest.NewNopSettings(f.Type()), rCfgLogs, logSink)
 	require.NoError(t, err)
 	err = rLogs.Start(context.Background(), componenttest.NewNopHost())
@@ -138,8 +134,7 @@ func TestEnhancedTraceGenerationWithLogsAndMetrics(t *testing.T) {
 	metricSink := &consumertest.MetricsSink{}
 	rCfgMetrics := f.CreateDefaultConfig()
 	endpointMetrics := getAvailableLocalAddress(t)
-	rCfgMetrics.(*otlpreceiver.Config).GRPC.NetAddr.Endpoint = endpointMetrics
-	rCfgMetrics.(*otlpreceiver.Config).HTTP = nil
+	setReceiverEndpoint(rCfgMetrics, endpointMetrics)
 	rMetrics, err := f.CreateMetrics(context.Background(), receivertest.NewNopSettings(f.Type()), rCfgMetrics, metricSink)
 	require.NoError(t, err)
 	err = rMetrics.Start(context.Background(), componenttest.NewNopHost())
@@ -230,8 +225,7 @@ func TestEnhancedTraceGenerationPatterns(t *testing.T) {
 			sink := &consumertest.TracesSink{}
 			rCfg := f.CreateDefaultConfig()
 			endpoint := getAvailableLocalAddress(t)
-			rCfg.(*otlpreceiver.Config).GRPC.NetAddr.Endpoint = endpoint
-			rCfg.(*otlpreceiver.Config).HTTP = nil
+			setReceiverEndpoint(rCfg, endpoint)
 			r, err := f.CreateTraces(context.Background(), receivertest.NewNopSettings(f.Type()), rCfg, sink)
 			require.NoError(t, err)
 			err = r.Start(context.Background(), componenttest.NewNopHost())

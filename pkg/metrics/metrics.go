@@ -124,7 +124,7 @@ func Start(cfg *Config, logger *zap.Logger) error {
 	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	logger.Info("starting the metrics generator with configuration", zap.Any("config", cfg))
+	logger.Info("starting the metrics generator", zap.Int("workers", cfg.WorkerCount))
 	if cfg.TerminalOutput {
 		fmt.Println("Starting metrics generator")
 	}
@@ -234,9 +234,11 @@ type noopMetricExporter struct{}
 func (n *noopMetricExporter) Temporality(_ sdkmetric.InstrumentKind) metricdata.Temporality {
 	return metricdata.CumulativeTemporality
 }
+
 func (n *noopMetricExporter) Aggregation(_ sdkmetric.InstrumentKind) sdkmetric.Aggregation {
 	return sdkmetric.AggregationDefault{}
 }
+
 func (n *noopMetricExporter) Export(_ context.Context, _ *metricdata.ResourceMetrics) error {
 	return nil
 }

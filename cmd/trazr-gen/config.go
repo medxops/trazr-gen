@@ -119,7 +119,7 @@ var metricsCmd = &cobra.Command{
 // logsCmd is the command responsible for sending logs
 var logsCmd = &cobra.Command{
 	Use:     "logs",
-	Short:   "Simulates a client generating metrics. (Stability level: development)",
+	Short:   "Simulates a client generating logs. (Stability level: development)",
 	Example: "trazr-gen logs",
 	RunE: func(_ *cobra.Command, _ []string) error {
 		// Initialize global seed for reproducible generation

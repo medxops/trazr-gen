@@ -18,9 +18,9 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.25.0"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
+	"golang.org/x/time/rate"
 
 	"github.com/medxops/trazr-gen/internal/common"
-	"golang.org/x/time/rate"
 )
 
 type worker struct {
@@ -115,7 +115,7 @@ func (w worker) simulateTraces(ctx context.Context, cfg *Config) {
 		}
 
 		parentSpanName := "lets-go"
-		ctx, sp := tracer.Start(context.Background(), parentSpanName, trace.WithAttributes(
+		spanCtx, sp := tracer.Start(ctx, parentSpanName, trace.WithAttributes(
 			semconv.NetSockPeerAddr(fakeIP),
 			semconv.PeerService("trazr-gen-server"),
 		),
@@ -127,7 +127,7 @@ func (w worker) simulateTraces(ctx context.Context, cfg *Config) {
 			sp.SetAttributes(attribute.String(fmt.Sprintf("load-%v", j), string(make([]byte, charactersPerMB))))
 		}
 
-		childCtx := ctx
+		childCtx := spanCtx
 		if w.propagateContext {
 			header := propagation.HeaderCarrier{}
 			// simulates going remote

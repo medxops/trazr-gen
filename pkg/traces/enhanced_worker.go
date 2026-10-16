@@ -534,7 +534,7 @@ func (w *EnhancedWorker) exportLogViaLogsSystem(logCfg *logs.Config, logTime tim
 		}
 	}
 
-	// Convert to log.KeyValue
+	// Convert to attribute.KeyValue
 	attrs := common.AttrToLogKeyValue(attrKVs)
 
 	// Process severity with gofakeit templating (if mock data is enabled)
@@ -585,7 +585,7 @@ func (w *EnhancedWorker) exportLogViaLogsSystem(logCfg *logs.Config, logTime tim
 		ObservedTimestamp: time.Now(), // Set to current time when log is observed
 		Severity:          severityEnum,
 		SeverityText:      severityText,
-		Body:              log.StringValue(body),
+		Body:              attribute.StringValue(body),
 		Attributes:        attrs,
 		TraceID:           tid,
 		SpanID:            sid,

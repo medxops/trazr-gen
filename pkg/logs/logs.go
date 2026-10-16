@@ -63,70 +63,63 @@ func SetHelpTemplateForCmd(cmd interface{ SetHelpTemplate(string) }) {
 
 // Start starts the log telemetry generator
 func Start(cfg *Config, logger *zap.Logger) error {
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
 	if err := cfg.InitAttributes(); err != nil {
 		logger.Error("failed to initialize attributes", zap.Error(err))
 		return err
 	}
 
-	noExport := !cfg.IsEndpointReachable()
-	if noExport {
-		logger.Info("no collector reachable, skipping export", zap.String("endpoint", cfg.Endpoint()))
-		if cfg.TerminalOutput {
-			fmt.Printf("No collector at %s — skipping export\n", cfg.Endpoint())
-		}
+	if !cfg.IsEndpointReachable() {
+		return fmt.Errorf("cannot reach OTLP collector at %s; check --otlp-endpoint and start the collector", cfg.Endpoint())
 	}
 
 	var exporter sdklog.Exporter
+	// Root context canceled on SIGINT/SIGTERM — scoped for exporter creation retry
+	expCtx, expCancel := context.WithTimeout(context.Background(), 1*time.Minute)
+	defer expCancel()
 
-	if noExport {
-		exporter = &noopLogExporter{}
-	} else {
-		// Root context canceled on SIGINT/SIGTERM — scoped for exporter creation retry
-		expCtx, expCancel := context.WithTimeout(context.Background(), 1*time.Minute)
-		defer expCancel()
-
-		deadline := time.Now().Add(1 * time.Minute)
-		backoffDelay := 500 * time.Millisecond
-		maxDelay := 10 * time.Second
-		for {
-			var err error
-			exporter, err = createExporter(cfg, logger)
-			if err == nil {
-				break
-			}
-			if time.Now().After(deadline) || expCtx.Err() != nil {
-				logger.Error("giving up creating logs exporter", zap.Error(err))
-				return err
-			}
-			logger.Warn("failed to create logs exporter, will retry", zap.Error(err), zap.Duration("next_backoff", backoffDelay))
-			select {
-			case <-time.After(backoffDelay):
-				backoffDelay *= 2
-				if backoffDelay > maxDelay {
-					backoffDelay = maxDelay
-				}
-			case <-expCtx.Done():
-				logger.Error("canceled while creating logs exporter", zap.Error(expCtx.Err()))
-				return expCtx.Err()
-			}
+	deadline := time.Now().Add(1 * time.Minute)
+	backoffDelay := 500 * time.Millisecond
+	maxDelay := 10 * time.Second
+	for {
+		var err error
+		exporter, err = createExporter(cfg, logger)
+		if err == nil {
+			break
 		}
-
-		// Ensure exporter is shut down once after generation completes
-		defer func() {
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			logger.Info("stopping the exporter")
-			if tempError := exporter.Shutdown(shutdownCtx); tempError != nil {
-				logger.Error("failed to stop the exporter", zap.Error(tempError))
+		if time.Now().After(deadline) || expCtx.Err() != nil {
+			logger.Error("giving up creating logs exporter", zap.Error(err))
+			return err
+		}
+		logger.Warn("failed to create logs exporter, will retry", zap.Error(err), zap.Duration("next_backoff", backoffDelay))
+		select {
+		case <-time.After(backoffDelay):
+			backoffDelay *= 2
+			if backoffDelay > maxDelay {
+				backoffDelay = maxDelay
 			}
-		}()
+		case <-expCtx.Done():
+			logger.Error("canceled while creating logs exporter", zap.Error(expCtx.Err()))
+			return expCtx.Err()
+		}
 	}
 
+	// Ensure exporter is shut down once after generation completes
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		logger.Info("stopping the exporter")
+		if tempError := exporter.Shutdown(shutdownCtx); tempError != nil {
+			logger.Error("failed to stop the exporter", zap.Error(tempError))
+		}
+	}()
 	// Root context canceled on SIGINT/SIGTERM
 	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	logger.Info("starting the logs generator with configuration", zap.Any("config", cfg))
+	logger.Info("starting the logs generator", zap.Int("workers", cfg.WorkerCount), zap.Int("logs_per_worker", cfg.NumLogs))
 	if cfg.TerminalOutput {
 		fmt.Println("Starting logs generator")
 	}
@@ -160,8 +153,7 @@ func run(rootCtx context.Context, c *Config, exporter sdklog.Exporter, logger *z
 	wg := sync.WaitGroup{}
 	attrs, err := c.GetResourceAttrWithMockMarker()
 	if err != nil {
-		logger.Fatal("failed to process resource attributes", zap.Error(err))
-		return err
+		return fmt.Errorf("process resource attributes: %w", err)
 	}
 
 	// Add trazr.run.flags attribute when time-bound feature is enabled
@@ -173,17 +165,25 @@ func run(rootCtx context.Context, c *Config, exporter sdklog.Exporter, logger *z
 
 	running := &atomic.Bool{}
 	running.Store(true)
+	runCtx, cancelRun := context.WithCancel(rootCtx)
+	defer cancelRun()
+	stopDone := make(chan struct{})
 	// Stop promptly on Ctrl-C
 	go func() {
-		<-rootCtx.Done()
+		defer close(stopDone)
+		<-runCtx.Done()
 		running.Store(false)
-		logger.Info("received interrupt signal, stopping all workers")
+		if rootCtx.Err() != nil {
+			logger.Info("received interrupt signal, stopping all workers")
+		}
 	}()
 
 	var totalLogs int64
 
 	progressCh := make(chan struct{})
+	progressDone := make(chan struct{})
 	go func() {
+		defer close(progressDone)
 		count := 0
 		for range progressCh {
 			count++
@@ -198,6 +198,7 @@ func run(rootCtx context.Context, c *Config, exporter sdklog.Exporter, logger *z
 
 	// Generate session ID once for all workers to ensure consistency
 	sessionID := GenerateTrazrTimeBoundName(c.MockSeed)
+	workerErrors := make(chan error, c.WorkerCount)
 
 	for i := 0; i < c.WorkerCount; i++ {
 		wg.Add(1)
@@ -224,31 +225,33 @@ func run(rootCtx context.Context, c *Config, exporter sdklog.Exporter, logger *z
 			timeBoundSessionID: sessionID,
 		}
 		go func() {
-			w.simulateLogs(rootCtx, c, res, exporter)
+			if err := w.simulateLogs(runCtx, c, res, exporter); err != nil {
+				workerErrors <- err
+				cancelRun()
+			}
 		}()
 	}
 
 	if c.TotalDuration > 0 {
 		select {
 		case <-time.After(c.TotalDuration):
-		case <-rootCtx.Done():
+		case <-runCtx.Done():
 		}
 		running.Store(false)
 	}
 	wg.Wait()
+	cancelRun()
+	<-stopDone
 	close(progressCh)
+	<-progressDone
+	close(workerErrors)
 	logger.Info("final count", zap.Int64("logs_generated", atomic.LoadInt64(&totalLogs)))
+	for err := range workerErrors {
+		return err
+	}
 
 	return nil
 }
-
-// noopLogExporter discards all records. Used when no collector is
-// reachable so the existing run() logic still drives generation.
-type noopLogExporter struct{}
-
-func (n *noopLogExporter) Export(_ context.Context, _ []sdklog.Record) error { return nil }
-func (n *noopLogExporter) Shutdown(_ context.Context) error                  { return nil }
-func (n *noopLogExporter) ForceFlush(_ context.Context) error                { return nil }
 
 func createExporter(cfg *Config, logger *zap.Logger) (sdklog.Exporter, error) {
 	var exp sdklog.Exporter

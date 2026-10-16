@@ -165,8 +165,8 @@ func TestMetricsWithTemporality(t *testing.T) {
 			// act
 			logger, _ := zap.NewDevelopment()
 			ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	require.NoError(t, run(ctx, cfg, m, logger))
+			defer cancel()
+			require.NoError(t, run(ctx, cfg, m, logger))
 
 			time.Sleep(1 * time.Second)
 

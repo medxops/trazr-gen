@@ -70,11 +70,11 @@ docker run --rm ghcr.io/medxops/trazr-gen:latest logs --logs 10 --otlp-endpoint 
     .\trazr-gen.exe logs --logs 10
     ```
 
-### Go (cross-platform, requires Go 1.20+)
+### Go (cross-platform, requires Go 1.26+)
 
-- **Install with Go** (requires Go 1.20+):
+- **Install with Go** (requires Go 1.26+):
   ```sh
-  go install github.com/medxops/trazr-gen@latest
+  go install github.com/medxops/trazr-gen/cmd/trazr-gen@latest
   ```
 
 - **Build from source:**
@@ -118,6 +118,17 @@ trazr-gen traces --mock-seed 12345 --enhanced --spans-per-trace 5
 ## Configuration
 
 TRAZR-GEN supports configuration via CLI flags or a YAML config file. See all options in [config.yaml](https://github.com/medxops/trazr-gen/blob/main/config.yaml).
+
+Pass `--config config.yaml` to load a file. The CLI does not automatically load a
+file from the current directory. This matters when your OTLP collector requires
+headers or uses a nondefault endpoint:
+
+```sh
+trazr-gen --config config.yaml logs --logs 10
+```
+
+If the collector cannot be reached or rejects a log export, the command exits
+with an error instead of reporting records that were never delivered.
 
 ---
 

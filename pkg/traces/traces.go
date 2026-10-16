@@ -187,7 +187,7 @@ func Start(cfg *Config, logger *zap.Logger) error {
 	if cfg.TerminalOutput {
 		fmt.Println("Starting traces generator")
 	}
-	logger.Info("starting the traces generator with configuration", zap.Any("config", cfg))
+	logger.Info("starting the traces generator", zap.Int("workers", cfg.WorkerCount))
 
 	if err := run(rootCtx, cfg, logger); err != nil {
 		logger.Error("failed to run the traces generator", zap.Error(err))
@@ -289,7 +289,7 @@ func runEnhanced(ctx context.Context, c *Config, logger *zap.Logger, limit rate.
 
 		// Start enhanced worker in a goroutine
 		go func() {
-			if err := enhancedWorker.Start(context.Background()); err != nil {
+			if err := enhancedWorker.Start(ctx); err != nil {
 				logger.Error("enhanced worker failed", zap.Error(err))
 			}
 		}()

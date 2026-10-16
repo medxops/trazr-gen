@@ -91,7 +91,7 @@ func (tg *TraceGenerator) GenerateTrace(_ context.Context) (*Trace, error) {
 	traceID := trace.TraceID{}
 	// Generate a random trace ID using math/rand for reproducibility
 	for i := range traceID {
-		traceID[i] = byte(tg.rng.IntN(256))
+		traceID[i] = byte(tg.rng.IntN(256)) //nolint:gosec // IntN bounds the value to one byte.
 	}
 
 	// Select pattern based on config

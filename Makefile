@@ -55,8 +55,10 @@ tidy: ## Tidy and verify dependencies
 run: build ## Run the application
 	$(BUILD_DIR)/$(BINARY_NAME)
 
-docker-build: ## Build Docker image
-	docker build -t $(BINARY_NAME) .
+docker-build: ## Build Docker image from the current source
+	@mkdir -p $(BUILD_DIR)/docker
+	CGO_ENABLED=0 GOOS=linux GOARCH=$(shell $(GOCMD) env GOARCH) $(GOBUILD) -o $(BUILD_DIR)/docker/$(BINARY_NAME) $(MAIN_PACKAGE)
+	docker build -f Dockerfile -t $(BINARY_NAME) $(BUILD_DIR)/docker
 
 docker-run: ## Run Docker container
 	docker run --rm $(BINARY_NAME)
@@ -133,4 +135,4 @@ tag-minor:
 tag-patch:
 	$(MAKE) _tag PART=patch
 
-.DEFAULT_GOAL := help 
+.DEFAULT_GOAL := help

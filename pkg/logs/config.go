@@ -74,6 +74,12 @@ func (c *Config) SetDefaults() {
 
 // Validate validates the test scenario parameters.
 func (c *Config) Validate() error {
+	if c.WorkerCount <= 0 {
+		return errors.New("workers must be greater than 0")
+	}
+	if c.Rate < 0 {
+		return errors.New("rate must not be negative")
+	}
 	if c.TotalDuration <= 0 && c.NumLogs <= 0 {
 		return errors.New("either `logs` or `duration` must be greater than 0")
 	}

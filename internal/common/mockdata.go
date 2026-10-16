@@ -23,9 +23,9 @@ func InitMockData(seed int64) {
 	fakerMutex.Lock()
 	if seed == 0 {
 		// Mask to ensure positive value, safe for gofakeit.New
-		fakerInstance = gofakeit.New(uint64(time.Now().UnixNano() & 0x7FFFFFFFFFFFFFFF)) //nolint:gosec // masking ensures safe conversion
+		fakerInstance = gofakeit.New(uint64(time.Now().UnixNano() & 0x7FFFFFFFFFFFFFFF))
 	} else {
-		fakerInstance = gofakeit.New(uint64(seed & 0x7FFFFFFFFFFFFFFF)) //nolint:gosec // masking ensures safe conversion
+		fakerInstance = gofakeit.New(uint64(seed & 0x7FFFFFFFFFFFFFFF))
 	}
 	fakerMutex.Unlock()
 }
@@ -53,7 +53,7 @@ func InitGlobalSeed(seed int64) {
 // of random data for subsequent template calls.
 func ReshuffleMockData() {
 	fakerMutex.Lock()
-	fakerInstance = gofakeit.New(uint64(time.Now().UnixNano() & 0x7FFFFFFFFFFFFFFF)) //nolint:gosec // masking ensures safe conversion
+	fakerInstance = gofakeit.New(uint64(time.Now().UnixNano() & 0x7FFFFFFFFFFFFFFF))
 	fakerMutex.Unlock()
 }
 
